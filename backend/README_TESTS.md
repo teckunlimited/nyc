@@ -8,12 +8,12 @@ Comprehensive unit tests for the NYC TLC Trip Data FastAPI backend. Tests cover 
 
 ### Passing Tests (15/24)
 
-✅ **Health & System Tests**
+**Health & System Tests**
 - `test_health_check` - Health endpoint returns correct status
 - `test_root_endpoint` - Root endpoint basic functionality
 - `test_items_endpoint` - Items endpoint returns list
 
-✅ **Daily Aggregates Tests**
+**Daily Aggregates Tests**
 - `test_get_daily_aggregates_all` - Get all aggregates without filters
 - `test_get_daily_aggregates_with_limit` - Limit parameter works correctly
 - `test_get_daily_aggregates_validation` - Parameter validation (422 errors)
@@ -21,27 +21,27 @@ Comprehensive unit tests for the NYC TLC Trip Data FastAPI backend. Tests cover 
 - `test_get_aggregates_summary` - Summary endpoint returns grouped data
 - `test_get_aggregates_summary_with_date_range` - Date filtering in summary
 
-✅ **Trip Data Tests**
+**Trip Data Tests**
 - `test_get_trips_default_pagination` - Default pagination (page 1, size 100)
 - `test_get_trips_with_date_filter` - Date range filtering works
 - `test_get_trips_response_structure` - Response includes all required fields
 - `test_get_trips_pagination_validation` - Validates page/page_size params
 
-✅ **Error Handling Tests**
+**Error Handling Tests**
 - `test_invalid_endpoint` - 404 for non-existent endpoints
 - `test_method_not_allowed` - 405 for wrong HTTP methods
 
 ### Known Issues (9 tests)
 
-⚠️ **Test Data Mismatches** (6 tests)
+**Test Data Mismatches** (6 tests)
 - Filter tests expect exact counts but SQLite test data differs slightly
 - Fixable by adjusting expected values in assertions
 
-⚠️ **Missing Table** (3 tests)
+**Missing Table** (3 tests)
 - `taxi_zone_lookup` table not created in SQLite test database
 - Requires adding table creation to test_db fixture
 
-⚠️ **CORS Test**
+**CORS Test**
 - OPTIONS method test expects 200 but gets 405
 - Needs CORS middleware configuration in test setup
 
@@ -187,17 +187,17 @@ test_main.py::test_items_endpoint PASSED                                 [ 12%]
 
 ## Benefits
 
-🎯 **Quality Assurance**
+**Quality Assurance**
 - Catch bugs before deployment
 - Verify API contract compliance
 - Ensure consistent behavior
 
-🚀 **Development Speed**
+**Development Speed**
 - Fast feedback loop (< 2 seconds)
 - No need to manually test endpoints
 - Confidence in refactoring
 
-📊 **Documentation**
+**Documentation**
 - Tests serve as usage examples
 - Show expected request/response formats
 - Demonstrate error handling

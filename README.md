@@ -2,7 +2,7 @@
 
 A production-ready, full-stack analytics platform for NYC TLC (Taxi & Limousine Commission) trip data. Features real-time dashboards, time-series visualizations, and efficient bulk data processing with PostgreSQL materialized views.
 
-## 🎯 Features
+## Features
 
 - **Real-time Analytics Dashboard** - Interactive charts showing daily trip patterns and revenue trends
 - **High-Performance Data Loading** - PostgreSQL COPY command for 3-5x faster bulk imports
@@ -12,8 +12,9 @@ A production-ready, full-stack analytics platform for NYC TLC (Taxi & Limousine 
 - **Time-Series Charts** - Chart.js visualizations with color-coded trip types
 - **Date Filtering** - Flexible date range selection and trip type filtering
 - **Scalable Architecture** - Deployed on Azure with CI/CD pipelines
+- **API Security** - Rate limiting (100 req/min) and CORS protection
 
-## 🏗️ Architecture
+## Architecture
 
 - **Backend**: FastAPI (Python 3.11) with SQLAlchemy ORM and Pydantic validation
 - **Frontend**: Angular 17 with standalone components and Chart.js 4.5
@@ -23,7 +24,7 @@ A production-ready, full-stack analytics platform for NYC TLC (Taxi & Limousine 
 - **CI/CD**: GitHub Actions for automated deployment
 - **Data Format**: Parquet files with pandas/pyarrow processing
 
-## 📁 Project Structure
+## Project Structure
 
 ```
 nyc/
@@ -57,7 +58,7 @@ nyc/
 
 ---
 
-## 🔧 Local Development
+## Local Development
 
 ### Prerequisites
 
@@ -133,7 +134,18 @@ The frontend dashboard includes:
 ```bash
 DATABASE_URL=postgresql://user:password@host:5432/nycdb?sslmode=require
 PORT=8000
+
+# Security Configuration
+CORS_ORIGINS=http://localhost:4200,http://localhost:3000
+RATE_LIMIT_PER_MINUTE=100
 ```
+
+**Security Notes:**
+- `CORS_ORIGINS`: Comma-separated list of additional allowed origins
+- Azure Container Apps URLs (`https://nyc-*-frontend.*-*.westus.azurecontainerapps.io`) are automatically allowed via regex
+- **Custom Domains**: If you have custom domains, you must add them to `CORS_ORIGINS` (e.g., `https://your-domain.com`)
+- `RATE_LIMIT_PER_MINUTE`: API rate limit per IP address (default: 100)
+- See [SECURITY.md](backend/SECURITY.md) for comprehensive security documentation
 
 #### Frontend
 
@@ -157,7 +169,7 @@ export const environment = {
 
 ---
 
-## ☁️ Azure Deployment
+## Azure Deployment
 
 ### Infrastructure Overview
 
@@ -304,7 +316,12 @@ curl https://{backend-url}/health
 - **GET** `/health` - Database connectivity and record counts
   - Returns: Connection status and table statistics
 
-**Full API documentation**: See [API_DOCUMENTATION.md](backend/API_DOCUMENTATION.md)
+### Security
+- **Rate Limiting**: 100 req/min for data endpoints, 200 req/min for health checks
+- **CORS Protection**: Automatic allowlist for Azure Container Apps + configurable origins
+- See [SECURITY.md](backend/SECURITY.md) for comprehensive security documentation
+
+**Full API documentation**: See [API_DOCUMENTATION.md](API_DOCUMENTATION.md)
 
 ## Database Schema
 
@@ -351,7 +368,7 @@ The zone lookup table enriches trip data by joining on `pu_location_id` and `do_
 
 ---
 
-## 🚀 Data Loading (Critical Performance Information)
+## Data Loading (Critical Performance Information)
 
 ### Performance Comparison
 
@@ -497,7 +514,7 @@ az postgres flexible-server firewall-rule create \
 
 ---
 
-## 📊 Tech Stack Details
+## Tech Stack Details
 
 ### Backend
 - **FastAPI 0.109** - Modern async web framework
@@ -603,7 +620,7 @@ psql "$DATABASE_URL" -c "
 
 ---
 
-## 📈 Performance Benchmarks
+## Performance Benchmarks
 
 ### Data Loading Performance
 - **Standard loader** (`load_data.py`): ~475k records/min
@@ -626,7 +643,7 @@ psql "$DATABASE_URL" -c "
 
 ---
 
-## 📝 Contributing
+## Contributing
 
 1. Fork the repository
 2. Create a feature branch: `git checkout -b feature/my-feature`
@@ -649,7 +666,7 @@ MIT License - see [LICENSE](LICENSE) file for details
 
 ---
 
-## 🔗 Additional Resources
+## Additional Resources
 
 - [NYC TLC Trip Record Data](https://www.nyc.gov/site/tlc/about/tlc-trip-record-data.page) - Official data source
 - [FastAPI Documentation](https://fastapi.tiangolo.com/) - Backend framework

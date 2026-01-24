@@ -5,10 +5,24 @@ RESTful API for accessing NYC Taxi & Limousine Commission trip data with built-i
 
 ## Base URL
 - **Local Development**: `http://localhost:8000`
-- **Azure Production**: `https://nyc-dev-backend.azurecontainerapps.io`
+- **Azure Development**: `https://nyc-dev-backend.victoriousgrass-*.westus.azurecontainerapps.io`
+- **Azure Staging**: `https://nyc-staging-backend.victoriousgrass-*.westus.azurecontainerapps.io`
+- **Azure Production**: `https://nyc-prod-backend.victoriousgrass-*.westus.azurecontainerapps.io`
 
-## Authentication
-No authentication required - all endpoints are publicly accessible.
+## Authentication & Security
+Currently no authentication required - endpoints are rate-limited and CORS-protected.
+
+**Rate Limits:**
+- Data endpoints: 100 requests/minute per IP
+- Health/Status endpoints: 200 requests/minute per IP
+
+**CORS:**
+- Azure Container Apps frontends automatically allowed
+- Local development: `http://localhost:4200`, `http://localhost:3000`
+- **Custom Domains**: Must be added to `CORS_ORIGINS` environment variable
+- Example: `CORS_ORIGINS=http://localhost:4200,https://your-domain.com`
+
+See [SECURITY.md](backend/SECURITY.md) for detailed security information.
 
 ---
 

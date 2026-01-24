@@ -53,6 +53,13 @@ The application now supports three separate environments, each with its own isol
 - Service Principal has minimal required permissions
 - Passwords are retrieved securely during deployment and never logged
 
+### API Security
+- **Rate Limiting:** 100 requests/minute per IP for data endpoints, 200/minute for health checks
+- **CORS Protection:** Automatic allowlist for Azure Container Apps URLs via regex pattern
+- **HTTPS Only:** All Container Apps use HTTPS by default with automatic TLS certificates
+- **Environment Variables:** Security settings configurable per environment via Container App settings
+- See [SECURITY.md](../backend/SECURITY.md) for comprehensive API security documentation
+
 ## Deployment Flow
 
 ### Automatic Backend URL Injection

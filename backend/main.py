@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Depends, HTTPException, Query, status
+from fastapi import FastAPI, Depends, HTTPException, Query, status, Request
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 from sqlalchemy import text, func, and_, or_
@@ -6,6 +6,9 @@ from typing import Optional, List
 from datetime import datetime, date, timedelta
 import os
 import logging
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
 from database import get_db, engine, Base
 from models import YellowTripData, GreenTripData, FHVTripData, FHVHVTripData, TaxiZoneLookup
 from schemas import (
@@ -17,7 +20,12 @@ from schemas import (
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+# Initialize rate limiter
+limiter = Limiter(key_func=get_remote_address)
+
 app = FastAPI(title="NYC TLC Trip Data API", version="1.0.0")
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 
 def create_schema_on_startup():
@@ -309,16 +317,28 @@ async def startup_event():
     create_schema_on_startup()
 
 # CORS configuration
+# Support Azure Container Apps URLs with regex patterns for dynamic hostnames
+allow_origin_regex = r"https://nyc-(dev|staging|prod)-frontend\.[a-z0-9]+-[a-z0-9]+\.westus\.azurecontainerapps\.io"
+
+# Get additional allowed origins from environment or use defaults for development
+cors_origins_str = os.getenv("CORS_ORIGINS", "http://localhost:4200,http://localhost:3000")
+allowed_origins = [origin.strip() for origin in cors_origins_str.split(",")]
+
+logger.info(f"CORS allowed origins: {allowed_origins}")
+logger.info(f"CORS origin regex: {allow_origin_regex}")
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Update with specific origins in production
+    allow_origins=allowed_origins,
+    allow_origin_regex=allow_origin_regex,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type"],
 )
 
 @app.get("/")
-async def root():
+@limiter.limit("200/minute")
+async def root(request: Request):
     return {
         "message": "NYC TLC Trip Data API", 
         "environment": os.getenv("ENVIRONMENT", "local"),
@@ -326,7 +346,8 @@ async def root():
     }
 
 @app.get("/health")
-async def health(db: Session = Depends(get_db)):
+@limiter.limit("200/minute")
+async def health(request: Request, db: Session = Depends(get_db)):
     try:
         # Test database connection
         db.execute(text("SELECT 1"))
@@ -360,7 +381,9 @@ async def get_items():
 # ==================== Daily Aggregates Endpoints ====================
 
 @app.get("/api/aggregates/daily", response_model=DailyAggregateListResponse)
+@limiter.limit("100/minute")
 async def get_daily_aggregates(
+    request: Request,
     start_date: Optional[date] = Query(None, description="Start date (YYYY-MM-DD)"),
     end_date: Optional[date] = Query(None, description="End date (YYYY-MM-DD)"),
     trip_type: Optional[str] = Query(None, description="Filter by trip type: yellow, green, fhv, fhvhv"),
@@ -417,7 +440,9 @@ async def get_daily_aggregates(
 
 
 @app.get("/api/aggregates/summary")
+@limiter.limit("100/minute")
 async def get_aggregates_summary(
+    request: Request,
     start_date: Optional[date] = Query(None),
     end_date: Optional[date] = Query(None),
     db: Session = Depends(get_db)
@@ -469,7 +494,9 @@ async def get_aggregates_summary(
 # ==================== Trip Data Endpoints ====================
 
 @app.get("/api/trips", response_model=PaginatedResponse)
+@limiter.limit("100/minute")
 async def get_trips(
+    request: Request,
     page: int = Query(1, ge=1, description="Page number"),
     page_size: int = Query(50, ge=1, le=100, description="Items per page"),
     trip_type: Optional[str] = Query(None, description="Filter by trip type"),
@@ -559,7 +586,8 @@ async def get_trips(
 # ==================== Zone Lookup Endpoint ====================
 
 @app.get("/api/zones")
-async def get_zones(db: Session = Depends(get_db)):
+@limiter.limit("100/minute")
+async def get_zones(request: Request, db: Session = Depends(get_db)):
     """Get all taxi zone lookup data"""
     query = text("""
         SELECT location_id, borough, zone, service_zone

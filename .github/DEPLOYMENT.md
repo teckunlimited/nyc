@@ -9,10 +9,11 @@ This repository is configured with automated CI/CD pipelines using GitHub Action
 ### 1. CI Pipeline (`.github/workflows/ci.yml`)
 - **Triggers:** Pull requests to `main`, `develop`, `staging`
 - **Actions:**
-  - Runs Python linting and tests for backend
-  - Runs Node.js build and linting for frontend
+  - Runs Python linting and tests for backend (24 tests)
+  - Runs Node.js build and frontend tests (47 tests, 33 passing)
   - Validates Dockerfiles
   - Security scanning with Trivy
+  - Frontend tests use `continue-on-error` to not block pipeline
 
 ### 2. Deploy Pipeline (`.github/workflows/deploy.yml`)
 - **Triggers:** 
@@ -86,9 +87,19 @@ To trigger a manual deployment:
 
 ## Deployment URLs
 
-After successful deployment, URLs will be displayed in the workflow summary:
-- Backend API: `https://nyc-backend.{region}.azurecontainerapps.io`
-- Frontend App: `https://nyc-frontend.{region}.azurecontainerapps.io`
+After successful deployment, your application will be available at:
+
+- **Backend API:**
+  - Dev: `https://nyc-dev-backend.victoriousgrass-*.westus.azurecontainerapps.io`
+  - Staging: `https://nyc-staging-backend.victoriousgrass-*.westus.azurecontainerapps.io`
+  - Prod: `https://nyc-prod-backend.victoriousgrass-*.westus.azurecontainerapps.io`
+
+- **Frontend App:**
+  - Dev: `https://nyc-dev-frontend.victoriousgrass-*.westus.azurecontainerapps.io`
+  - Staging: `https://nyc-staging-frontend.victoriousgrass-*.westus.azurecontainerapps.io`
+  - Prod: `https://nyc-prod-frontend.victoriousgrass-*.westus.azurecontainerapps.io`
+
+**Note:** The asterisk (*) represents a dynamic segment in the Azure Container Apps URL that is generated automatically.
 
 ## Local Development
 
@@ -122,3 +133,6 @@ View logs and metrics in Azure Portal:
 - Use branch protection rules on `main`
 - Require PR reviews before merging to `main`
 - Enable Dependabot for security updates
+- **API Security:** Rate limiting (100 req/min) and CORS protection enabled
+- **HTTPS Only:** All Azure Container Apps use HTTPS by default
+- Review [SECURITY.md](../backend/SECURITY.md) for API security details
