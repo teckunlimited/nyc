@@ -88,6 +88,85 @@ jobs:
               --logs-workspace-key $LOG_WORKSPACE_KEY
           fi
 
+      - name: Create Key Vault and Database Password
+        id: keyvault
+        run: |
+          KEYVAULT_NAME="nyc-${{ steps.env.outputs.suffix }}-kv-$(echo $RANDOM | md5sum | head -c 8)"
+          
+          # Create Key Vault
+          az keyvault create \
+            --name $KEYVAULT_NAME \
+            --resource-group ${{ steps.env.outputs.resource_group }} \
+            --location ${{ env.LOCATION }} \
+            --enable-rbac-authorization false \
+            --enabled-for-deployment true \
+            --enabled-for-template-deployment true 2>/dev/null || true
+          
+          # Grant access to service principal
+          az keyvault set-policy \
+            --name $KEYVAULT_NAME \
+            --resource-group ${{ steps.env.outputs.resource_group }} \
+            --object-id f3098b92-9b40-4003-99fc-2be4e16f9506 \
+            --secret-permissions get list set delete 2>/dev/null || true
+          
+          echo "name=$KEYVAULT_NAME" >> $GITHUB_OUTPUT
+          
+          # Check if password already exists
+          if ! az keyvault secret show --vault-name $KEYVAULT_NAME --name db-password &>/dev/null; then
+            # Generate secure password (20 chars, alphanumeric + special chars)
+            DB_PASSWORD=$(openssl rand -base64 32 | tr -d "=+/" | cut -c1-20)
+            
+            # Store in Key Vault
+            az keyvault secret set \
+              --vault-name $KEYVAULT_NAME \
+              --name db-password \
+              --value "$DB_PASSWORD" \
+              --output none
+          fi
+          
+          # Get the password (never echo it)
+          DB_PASSWORD=$(az keyvault secret show --vault-name $KEYVAULT_NAME --name db-password --query value -o tsv)
+          echo "::add-mask::$DB_PASSWORD"
+          echo "password=$DB_PASSWORD" >> $GITHUB_OUTPUT
+
+      - name: Create PostgreSQL Database
+        id: postgres
+        run: |
+          DB_SERVER_NAME="nyc-${{ steps.env.outputs.suffix }}-db-$(echo $RANDOM | md5sum | head -c 8)"
+          DB_ADMIN_USER="nycadmin"
+          
+          # Create PostgreSQL Flexible Server
+          if ! az postgres flexible-server show --name $DB_SERVER_NAME --resource-group ${{ steps.env.outputs.resource_group }} 2>/dev/null; then
+            echo "Creating PostgreSQL Flexible Server..."
+            az postgres flexible-server create \
+              --name $DB_SERVER_NAME \
+              --resource-group ${{ steps.env.outputs.resource_group }} \
+              --location ${{ env.LOCATION }} \
+              --admin-user $DB_ADMIN_USER \
+              --admin-password "${{ steps.keyvault.outputs.password }}" \
+              --sku-name Standard_B1ms \
+              --tier Burstable \
+              --storage-size 32 \
+              --version 16 \
+              --public-access 0.0.0.0-255.255.255.255 \
+              --yes
+            
+            # Create database
+            az postgres flexible-server db create \
+              --resource-group ${{ steps.env.outputs.resource_group }} \
+              --server-name $DB_SERVER_NAME \
+              --database-name nycdb
+          fi
+          
+          echo "server_name=$DB_SERVER_NAME" >> $GITHUB_OUTPUT
+          echo "admin_user=$DB_ADMIN_USER" >> $GITHUB_OUTPUT
+          
+          # Build connection string (password will be masked in logs)
+          DB_HOST="${DB_SERVER_NAME}.postgres.database.azure.com"
+          CONNECTION_STRING="postgresql://${DB_ADMIN_USER}:${{ steps.keyvault.outputs.password }}@${DB_HOST}:5432/nycdb?sslmode=require"
+          echo "::add-mask::$CONNECTION_STRING"
+          echo "connection_string=$CONNECTION_STRING" >> $GITHUB_OUTPUT
+
       - name: Login to Azure Container Registry
         run: |
           az acr login --name ${{ env.ACR_NAME }} --resource-group ${{ env.ACR_RESOURCE_GROUP }}
@@ -124,10 +203,14 @@ jobs:
       - name: Deploy backend to Azure Container Apps
         if: github.event_name == 'push'
         run: |
+          # Mask the connection string in logs
+          echo "::add-mask::${{ steps.postgres.outputs.connection_string }}"
+          
           az containerapp update \
             --name ${{ steps.env.outputs.backend_app }} \
             --resource-group ${{ steps.env.outputs.resource_group }} \
             --image ${{ env.ACR_LOGIN_SERVER }}/backend:${{ github.sha }} \
+            --set-env-vars DATABASE_URL="${{ steps.postgres.outputs.connection_string }}" ENVIRONMENT=${{ steps.env.outputs.env_name }} \
             2>/dev/null || az containerapp create \
               --name ${{ steps.env.outputs.backend_app }} \
               --resource-group ${{ steps.env.outputs.resource_group }} \
@@ -140,7 +223,7 @@ jobs:
               --registry-password ${{ steps.acr.outputs.password }} \
               --cpu 0.5 --memory 1.0Gi \
               --min-replicas 1 --max-replicas 3 \
-              --env-vars ENVIRONMENT=${{ steps.env.outputs.env_name }}
+              --env-vars DATABASE_URL="${{ steps.postgres.outputs.connection_string }}" ENVIRONMENT=${{ steps.env.outputs.env_name }}
 
       - name: Get backend URL and update frontend nginx config
         if: github.event_name == 'push'

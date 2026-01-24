@@ -1,7 +1,7 @@
 # Multi-Environment Deployment Setup
 
 ## Overview
-The application now supports three separate environments, each with its own isolated Azure resource group and automatically configured backend URL.
+The application now supports three separate environments, each with its own isolated Azure resource group, PostgreSQL database, and automatically configured backend URL with secure password management.
 
 ## Environments
 
@@ -11,6 +11,8 @@ The application now supports three separate environments, each with its own isol
 - **Container Environment:** `nyc-prod-env`
 - **Backend App:** `nyc-prod-backend`
 - **Frontend App:** `nyc-prod-frontend`
+- **Key Vault:** `nyc-prod-kv-xxxxxxxx`
+- **Database:** `nyc-prod-db-xxxxxxxx` (PostgreSQL 16)
 - **Trigger:** Push to `main` branch
 
 ### 2. Staging (staging branch)
@@ -19,6 +21,8 @@ The application now supports three separate environments, each with its own isol
 - **Container Environment:** `nyc-staging-env`
 - **Backend App:** `nyc-staging-backend`
 - **Frontend App:** `nyc-staging-frontend`
+- **Key Vault:** `nyc-staging-kv-xxxxxxxx`
+- **Database:** `nyc-staging-db-xxxxxxxx` (PostgreSQL 16)
 - **Trigger:** Push to `staging` branch
 
 ### 3. Development (develop branch)
@@ -27,7 +31,27 @@ The application now supports three separate environments, each with its own isol
 - **Container Environment:** `nyc-dev-env`
 - **Backend App:** `nyc-dev-backend`
 - **Frontend App:** `nyc-dev-frontend`
+- **Key Vault:** `nyc-dev-kv-xxxxxxxx`
+- **Database:** `nyc-dev-db-xxxxxxxx` (PostgreSQL 16)
 - **Trigger:** Push to `develop` branch
+
+### Shared Resources
+- **Resource Group:** `nyc-shared-rg`
+- **Container Registry:** `nycacrtakkd33nvzu2k.azurecr.io`
+
+## Security Features
+
+### Database Password Management
+- **Auto-generated:** Each environment gets a unique 20-character secure password on first deployment
+- **Stored Securely:** Passwords are stored in Azure Key Vault (never in code or logs)
+- **Masked in Logs:** All sensitive values are automatically masked in GitHub Actions logs
+- **Never Exposed:** Connection strings are passed as secure environment variables to containers
+
+### Key Vault Integration
+- Each environment has its own dedicated Key Vault
+- Database passwords are generated using OpenSSL and stored as secrets
+- Service Principal has minimal required permissions
+- Passwords are retrieved securely during deployment and never logged
 
 ## Deployment Flow
 
@@ -87,8 +111,27 @@ Future deployments to the same environment:
 ## Environment Variables
 
 Each container app receives:
-- **BACKEND_URL**: Automatically set to the environment's backend URL
+- **DATABASE_URL**: Securely injected PostgreSQL connection string (masked in logs)
+- **BACKEND_URL**: Automatically set to the environment's backend URL (frontend only)
 - **ENVIRONMENT**: Set to `production`, `staging`, or `development`
+
+## Database Configuration
+
+### PostgreSQL Flexible Server
+- **Version:** PostgreSQL 16
+- **Tier:** Burstable (Standard_B1ms)
+- **Storage:** 32 GB
+- **SSL:** Required for all connections
+- **Firewall:** Allows Azure services (can be restricted in production)
+- **Database Name:** `nycdb`
+- **Admin User:** `nycadmin`
+
+### Accessing Database Credentials
+Database passwords are never displayed in logs or code. To access:
+```bash
+# Get password from Key Vault
+az keyvault secret show --vault-name nyc-{env}-kv-xxxxxxxx --name db-password --query value -o tsv
+```
 
 ## Accessing Deployed Applications
 
