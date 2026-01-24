@@ -1,5 +1,7 @@
 param location string
 param environmentName string
+param backendImageTag string = 'latest'
+param frontendImageTag string = 'latest'
 
 @secure()
 param postgresAdminPassword string = newGuid()
@@ -82,7 +84,7 @@ resource backendAppService 'Microsoft.Web/sites@2022-03-01' = {
   properties: {
     serverFarmId: appServicePlan.id
     siteConfig: {
-      linuxFxVersion: 'DOCKER|${acr.properties.loginServer}/backend:latest'
+      linuxFxVersion: 'DOCKER|${acr.properties.loginServer}/backend:${backendImageTag}'
       appSettings: [
         {
           name: 'DOCKER_REGISTRY_SERVER_URL'
@@ -113,7 +115,7 @@ resource frontendAppService 'Microsoft.Web/sites@2022-03-01' = {
   properties: {
     serverFarmId: appServicePlan.id
     siteConfig: {
-      linuxFxVersion: 'DOCKER|${acr.properties.loginServer}/frontend:latest'
+      linuxFxVersion: 'DOCKER|${acr.properties.loginServer}/frontend:${frontendImageTag}'
       appSettings: [
         {
           name: 'DOCKER_REGISTRY_SERVER_URL'

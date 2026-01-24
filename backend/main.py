@@ -26,7 +26,8 @@ def create_schema_on_startup():
         Base.metadata.create_all(bind=engine)
         logger.info("✓ Tables created")
         
-        with engine.connect() as conn:
+        # Force commit by using begin() context
+        with engine.begin() as conn:
             # Create partial indexes for recent trips (performance optimization)
             logger.info("Creating performance indexes...")
             
@@ -157,7 +158,7 @@ def create_schema_on_startup():
                 CREATE INDEX IF NOT EXISTS idx_summary_locations ON trip_summary_view (pu_location_id, do_location_id)
             """))
             
-            conn.commit()
+            # Commit happens automatically with engine.begin()
             logger.info("✓ Materialized view created")
         
         logger.info("✓ Schema initialization complete!")
