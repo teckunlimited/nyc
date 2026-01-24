@@ -57,18 +57,15 @@ jobs:
 
       - name: Create Container Apps environment if not exists
         run: |
-          # Check if environment exists
-          if ! az containerapp env show --name ${{ steps.env.outputs.container_env }} --resource-group ${{ steps.env.outputs.resource_group }} &>/dev/null; then
+          if ! az containerapp env show --name ${{ steps.env.outputs.container_env }} --resource-group ${{ steps.env.outputs.resource_group }} 2>/dev/null; then
             echo "Creating Container Apps environment..."
-            # Create Log Analytics workspace if needed
+            
             az monitor log-analytics workspace create \
               --resource-group ${{ steps.env.outputs.resource_group }} \
               --workspace-name ${{ steps.env.outputs.container_env }}-logs \
-              --location ${{ env.LOCATION }} || true
-             (placeholder backend URL)
-      - name: Create Container Apps environment if not exists
-        run: |
-          # Build with placeholder - will be updated after backend deploymentG_WORKSPACE_ID=$(az monitor log-analytics workspace show \
+              --location ${{ env.LOCATION }} 2>/dev/null || true
+            
+            LOG_WORKSPACE_ID=$(az monitor log-analytics workspace show \
               --resource-group ${{ steps.env.outputs.resource_group }} \
               --workspace-name ${{ steps.env.outputs.container_env }}-logs \
               --query customerId --output tsv)
@@ -100,7 +97,7 @@ jobs:
           docker push ${{ env.ACR_LOGIN_SERVER }}/backend:${{ steps.env.outputs.suffix }}
           docker push ${{ env.ACR_LOGIN_SERVER }}/backend:latest
 
-      - name: Build and push frontend image
+      - name: Build and push frontend image (placeholder)
         run: |
           docker build -t ${{ env.ACR_LOGIN_SERVER }}/frontend:${{ github.sha }} \
                        -t ${{ env.ACR_LOGIN_SERVER }}/frontend:${{ steps.env.outputs.suffix }} \
@@ -113,7 +110,8 @@ jobs:
       - name: Deploy backend to Azure Container Apps
         if: github.event_name == 'push'
         run: |
-          az containerasteps.env.outputs.backend_app }} \
+          az containerapp update \
+            --name ${{ steps.env.outputs.backend_app }} \
             --resource-group ${{ steps.env.outputs.resource_group }} \
             --image ${{ env.ACR_LOGIN_SERVER }}/backend:${{ github.sha }} \
             2>/dev/null || az containerapp create \
@@ -182,5 +180,4 @@ jobs:
           echo "**Backend API:** ${{ steps.backend.outputs.url }}" >> $GITHUB_STEP_SUMMARY
           echo "**Backend Health:** ${{ steps.backend.outputs.url }}/health" >> $GITHUB_STEP_SUMMARY
           echo "**Backend Docs:** ${{ steps.backend.outputs.url }}/docs" >> $GITHUB_STEP_SUMMARY
-          echo "**Frontend App:** https://$FRONTEND_URLB_STEP_SUMMARY
-          echo "**Environment:** ${{ steps.env.outputs.env_name }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Frontend App:** https://$FRONTEND_URL" >> $GITHUB_STEP_SUMMARY
