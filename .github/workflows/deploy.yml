@@ -10,6 +10,7 @@ on:
 env:
   ACR_NAME: nycacrtakkd33nvzu2k
   ACR_LOGIN_SERVER: nycacrtakkd33nvzu2k.azurecr.io
+  ACR_RESOURCE_GROUP: nyc-shared-rg
   LOCATION: westus
 
 jobs:
@@ -51,6 +52,10 @@ jobs:
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
 
+      - name: Ensure shared ACR resource group exists
+        run: |
+          az group create --name ${{ env.ACR_RESOURCE_GROUP }} --location ${{ env.LOCATION }} || true
+
       - name: Create resource group if not exists
         run: |
           az group create --name ${{ steps.env.outputs.resource_group }} --location ${{ env.LOCATION }} || true
@@ -85,7 +90,7 @@ jobs:
 
       - name: Login to Azure Container Registry
         run: |
-          az acr login --name ${{ env.ACR_NAME }}
+          az acr login --name ${{ env.ACR_NAME }} --resource-group ${{ env.ACR_RESOURCE_GROUP }}
 
       - name: Build and push backend image
         run: |
