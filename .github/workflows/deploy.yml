@@ -2,9 +2,9 @@ name: Deploy to Azure
 
 on:
   push:
-    branches: [main, develop, staging]
+    branches: [develop]
   pull_request:
-    branches: [main]
+    branches: [develop]
   workflow_dispatch:
 
 env:
@@ -91,30 +91,40 @@ jobs:
       - name: Create Key Vault and Database Password
         id: keyvault
         run: |
-          KEYVAULT_NAME="nyc-${{ steps.env.outputs.suffix }}-kv-$(echo $RANDOM | md5sum | head -c 8)"
+          # Generate unique but deterministic Key Vault name based on resource group
+          KEYVAULT_NAME="nyc-${{ steps.env.outputs.suffix }}-kv$(echo ${{ steps.env.outputs.resource_group }} | md5sum | cut -c1-8)"
           
-          # Create Key Vault
-          az keyvault create \
-            --name $KEYVAULT_NAME \
-            --resource-group ${{ steps.env.outputs.resource_group }} \
-            --location ${{ env.LOCATION }} \
-            --enable-rbac-authorization false \
-            --enabled-for-deployment true \
-            --enabled-for-template-deployment true 2>/dev/null || true
+          echo "Creating/verifying Key Vault: $KEYVAULT_NAME"
           
-          # Grant access to service principal
+          # Create Key Vault if it doesn't exist
+          if ! az keyvault show --name $KEYVAULT_NAME --resource-group ${{ steps.env.outputs.resource_group }} &>/dev/null; then
+            echo "Creating new Key Vault..."
+            az keyvault create \
+              --name $KEYVAULT_NAME \
+              --resource-group ${{ steps.env.outputs.resource_group }} \
+              --location ${{ env.LOCATION }} \
+              --enable-rbac-authorization false \
+              --enabled-for-deployment true \
+              --enabled-for-template-deployment true
+            
+            echo "Waiting for Key Vault DNS to propagate..."
+            sleep 30
+          fi
+          
+          # Grant access to service principal (idempotent)
           az keyvault set-policy \
             --name $KEYVAULT_NAME \
             --resource-group ${{ steps.env.outputs.resource_group }} \
             --object-id f3098b92-9b40-4003-99fc-2be4e16f9506 \
-            --secret-permissions get list set delete 2>/dev/null || true
+            --secret-permissions get list set delete || true
           
           echo "name=$KEYVAULT_NAME" >> $GITHUB_OUTPUT
           
-          # Check if password already exists
+          # Check if password already exists, if not generate one
           if ! az keyvault secret show --vault-name $KEYVAULT_NAME --name db-password &>/dev/null; then
-            # Generate secure password (20 chars, alphanumeric + special chars)
-            DB_PASSWORD=$(openssl rand -base64 32 | tr -d "=+/" | cut -c1-20)
+            echo "Generating new database password..."
+            # Generate secure password (20 chars, alphanumeric only for compatibility)
+            DB_PASSWORD=$(openssl rand -base64 30 | tr -dc 'a-zA-Z0-9' | head -c 20)
             
             # Store in Key Vault
             az keyvault secret set \
@@ -122,6 +132,10 @@ jobs:
               --name db-password \
               --value "$DB_PASSWORD" \
               --output none
+            
+            echo "Password stored in Key Vault"
+          else
+            echo "Using existing password from Key Vault"
           fi
           
           # Get the password (never echo it)
@@ -132,10 +146,13 @@ jobs:
       - name: Create PostgreSQL Database
         id: postgres
         run: |
-          DB_SERVER_NAME="nyc-${{ steps.env.outputs.suffix }}-db-$(echo $RANDOM | md5sum | head -c 8)"
+          # Generate deterministic server name based on resource group
+          DB_SERVER_NAME="nyc-${{ steps.env.outputs.suffix }}-db$(echo ${{ steps.env.outputs.resource_group }} | md5sum | cut -c1-6)"
           DB_ADMIN_USER="nycadmin"
           
-          # Create PostgreSQL Flexible Server
+          echo "PostgreSQL server name: $DB_SERVER_NAME"
+          
+          # Check if server already exists
           if ! az postgres flexible-server show --name $DB_SERVER_NAME --resource-group ${{ steps.env.outputs.resource_group }} 2>/dev/null; then
             echo "Creating PostgreSQL Flexible Server..."
             az postgres flexible-server create \
@@ -151,11 +168,17 @@ jobs:
               --public-access 0.0.0.0-255.255.255.255 \
               --yes
             
+            echo "Waiting for server to be ready..."
+            sleep 30
+            
             # Create database
+            echo "Creating database nycdb..."
             az postgres flexible-server db create \
               --resource-group ${{ steps.env.outputs.resource_group }} \
               --server-name $DB_SERVER_NAME \
               --database-name nycdb
+          else
+            echo "PostgreSQL server already exists"
           fi
           
           echo "server_name=$DB_SERVER_NAME" >> $GITHUB_OUTPUT
@@ -166,6 +189,7 @@ jobs:
           CONNECTION_STRING="postgresql://${DB_ADMIN_USER}:${{ steps.keyvault.outputs.password }}@${DB_HOST}:5432/nycdb?sslmode=require"
           echo "::add-mask::$CONNECTION_STRING"
           echo "connection_string=$CONNECTION_STRING" >> $GITHUB_OUTPUT
+          echo "Database configuration complete"
 
       - name: Login to Azure Container Registry
         run: |
