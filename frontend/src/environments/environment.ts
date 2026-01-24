@@ -1,4 +1,4 @@
 export const environment = {
   production: false,
-  apiUrl: 'https://nyc-backend.victorioustree-f426d1b9.westus.azurecontainerapps.io'
+  apiUrl: 'http://localhost:8000'
 };

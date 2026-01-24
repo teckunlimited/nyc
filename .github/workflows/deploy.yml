@@ -256,7 +256,7 @@ jobs:
               --min-replicas 1 --max-replicas 3 \
               --env-vars DATABASE_URL="${{ steps.postgres.outputs.connection_string }}" ENVIRONMENT=${{ steps.env.outputs.env_name }}
 
-      - name: Get backend URL and update frontend nginx config
+      - name: Get backend URL and update frontend configuration
         if: github.event_name == 'push'
         id: backend
         run: |
@@ -267,8 +267,14 @@ jobs:
           echo "fqdn=$BACKEND_FQDN" >> $GITHUB_OUTPUT
           echo "url=https://$BACKEND_FQDN" >> $GITHUB_OUTPUT
           
+          echo "Updating frontend with backend URL: https://$BACKEND_FQDN"
+          
           # Update nginx config with actual backend URL
           sed -i "s|BACKEND_URL_PLACEHOLDER|https://$BACKEND_FQDN|g" frontend/nginx.conf
+          
+          # Update Angular environment files with actual backend URL
+          sed -i "s|apiUrl: '.*'|apiUrl: 'https://$BACKEND_FQDN'|g" frontend/src/environments/environment.ts
+          sed -i "s|apiUrl: '.*'|apiUrl: 'https://$BACKEND_FQDN'|g" frontend/src/environments/environment.prod.ts
           
           # Rebuild frontend with correct backend URL
           docker build -t ${{ env.ACR_LOGIN_SERVER }}/frontend:${{ github.sha }}-final \
