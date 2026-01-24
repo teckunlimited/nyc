@@ -36,7 +36,7 @@ jobs:
         run: |
           cd backend
           # pytest --cov=. --cov-report=xml
-          echo "✅ Backend validation passed"
+          echo "Backend validation passed"
       
       - name: Validate Dockerfile
         run: |
@@ -65,7 +65,7 @@ jobs:
         run: |
           cd frontend
           # npm run lint
-          echo "✅ Frontend linting passed"
+          echo "Frontend linting passed"
       
       - name: Build frontend
         run: |
@@ -86,9 +86,9 @@ jobs:
       - name: Check for secrets
         run: |
           if grep -r "password" --include="*.py" --include="*.ts" --include="*.js" backend/ frontend/ 2>/dev/null | grep -v "password:" | grep -v "#"; then
-            echo "⚠️ Warning: Possible hardcoded credentials found"
+            echo "Warning: Possible hardcoded credentials found"
           else
-            echo "✅ No hardcoded credentials detected"
+            echo "No hardcoded credentials detected"
           fi
 
   security-scan:
