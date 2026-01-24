@@ -52,6 +52,13 @@ jobs:
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
 
+      - name: Register required resource providers
+        run: |
+          echo "Registering Azure resource providers..."
+          az provider register --namespace Microsoft.KeyVault --wait
+          az provider register --namespace Microsoft.DBforPostgreSQL --wait
+          echo "Resource providers registered"
+
       - name: Ensure shared ACR resource group exists
         run: |
           az group create --name ${{ env.ACR_RESOURCE_GROUP }} --location ${{ env.LOCATION }} || true
