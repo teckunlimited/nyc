@@ -456,13 +456,9 @@ export class AppComponent implements OnInit {
   tripsChart: Chart | null = null;
 
   constructor(private http: HttpClient) {
-    // Set default date range (last 30 days)
-    const today = new Date();
-    const thirtyDaysAgo = new Date(today);
-    thirtyDaysAgo.setDate(today.getDate() - 30);
-    
-    this.endDate = today.toISOString().split('T')[0];
-    this.startDate = thirtyDaysAgo.toISOString().split('T')[0];
+    // Set default date range to 2021
+    this.startDate = '2021-01-01';
+    this.endDate = '2021-12-31';
   }
 
   ngOnInit() {
