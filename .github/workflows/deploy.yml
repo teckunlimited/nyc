@@ -92,6 +92,15 @@ jobs:
         run: |
           az acr login --name ${{ env.ACR_NAME }} --resource-group ${{ env.ACR_RESOURCE_GROUP }}
 
+      - name: Get ACR credentials
+        id: acr
+        run: |
+          ACR_USERNAME=$(az acr credential show --name ${{ env.ACR_NAME }} --resource-group ${{ env.ACR_RESOURCE_GROUP }} --query username -o tsv)
+          ACR_PASSWORD=$(az acr credential show --name ${{ env.ACR_NAME }} --resource-group ${{ env.ACR_RESOURCE_GROUP }} --query passwords[0].value -o tsv)
+          echo "username=$ACR_USERNAME" >> $GITHUB_OUTPUT
+          echo "::add-mask::$ACR_PASSWORD"
+          echo "password=$ACR_PASSWORD" >> $GITHUB_OUTPUT
+
       - name: Build and push backend image
         run: |
           docker build -t ${{ env.ACR_LOGIN_SERVER }}/backend:${{ github.sha }} \
@@ -127,6 +136,8 @@ jobs:
               --target-port 8000 \
               --ingress external \
               --registry-server ${{ env.ACR_LOGIN_SERVER }} \
+              --registry-username ${{ steps.acr.outputs.username }} \
+              --registry-password ${{ steps.acr.outputs.password }} \
               --cpu 0.5 --memory 1.0Gi \
               --min-replicas 1 --max-replicas 3 \
               --env-vars ENVIRONMENT=${{ steps.env.outputs.env_name }}
@@ -167,6 +178,8 @@ jobs:
               --target-port 80 \
               --ingress external \
               --registry-server ${{ env.ACR_LOGIN_SERVER }} \
+              --registry-username ${{ steps.acr.outputs.username }} \
+              --registry-password ${{ steps.acr.outputs.password }} \
               --cpu 0.5 --memory 1.0Gi \
               --min-replicas 1 --max-replicas 3 \
               --env-vars BACKEND_URL=${{ steps.backend.outputs.url }} ENVIRONMENT=${{ steps.env.outputs.env_name }}
