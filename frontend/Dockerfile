@@ -10,6 +10,10 @@ RUN npm run build
 
 FROM nginx:alpine
 
+# Accept backend URL as build argument
+ARG BACKEND_URL
+ENV BACKEND_URL=${BACKEND_URL}
+
 COPY --from=build /app/dist/nyc-frontend /usr/share/nginx/html
 COPY nginx.conf /etc/nginx/conf.d/default.conf
 

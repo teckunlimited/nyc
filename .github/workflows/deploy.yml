@@ -10,10 +10,7 @@ on:
 env:
   ACR_NAME: nycacrtakkd33nvzu2k
   ACR_LOGIN_SERVER: nycacrtakkd33nvzu2k.azurecr.io
-  RESOURCE_GROUP: nyc-app-rg
-  CONTAINER_APP_ENV: nyc-env
-  BACKEND_APP: nyc-backend
-  FRONTEND_APP: nyc-frontend
+  LOCATION: westus
 
 jobs:
   build-and-deploy:
@@ -23,24 +20,71 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Set environment suffix
+      - name: Set environment configuration
         id: env
         run: |
           if [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
             echo "suffix=prod" >> $GITHUB_OUTPUT
             echo "env_name=production" >> $GITHUB_OUTPUT
+            echo "resource_group=nyc-prod-rg" >> $GITHUB_OUTPUT
+            echo "container_env=nyc-prod-env" >> $GITHUB_OUTPUT
+            echo "backend_app=nyc-prod-backend" >> $GITHUB_OUTPUT
+            echo "frontend_app=nyc-prod-frontend" >> $GITHUB_OUTPUT
           elif [[ "${{ github.ref }}" == "refs/heads/staging" ]]; then
             echo "suffix=staging" >> $GITHUB_OUTPUT
             echo "env_name=staging" >> $GITHUB_OUTPUT
+            echo "resource_group=nyc-staging-rg" >> $GITHUB_OUTPUT
+            echo "container_env=nyc-staging-env" >> $GITHUB_OUTPUT
+            echo "backend_app=nyc-staging-backend" >> $GITHUB_OUTPUT
+            echo "frontend_app=nyc-staging-frontend" >> $GITHUB_OUTPUT
           else
             echo "suffix=dev" >> $GITHUB_OUTPUT
             echo "env_name=development" >> $GITHUB_OUTPUT
+            echo "resource_group=nyc-dev-rg" >> $GITHUB_OUTPUT
+            echo "container_env=nyc-dev-env" >> $GITHUB_OUTPUT
+            echo "backend_app=nyc-dev-backend" >> $GITHUB_OUTPUT
+            echo "frontend_app=nyc-dev-frontend" >> $GITHUB_OUTPUT
           fi
 
       - name: Login to Azure
         uses: azure/login@v1
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Create resource group if not exists
+        run: |
+          az group create --name ${{ steps.env.outputs.resource_group }} --location ${{ env.LOCATION }} || true
+
+      - name: Create Container Apps environment if not exists
+        run: |
+          # Check if environment exists
+          if ! az containerapp env show --name ${{ steps.env.outputs.container_env }} --resource-group ${{ steps.env.outputs.resource_group }} &>/dev/null; then
+            echo "Creating Container Apps environment..."
+            # Create Log Analytics workspace if needed
+            az monitor log-analytics workspace create \
+              --resource-group ${{ steps.env.outputs.resource_group }} \
+              --workspace-name ${{ steps.env.outputs.container_env }}-logs \
+              --location ${{ env.LOCATION }} || true
+             (placeholder backend URL)
+      - name: Create Container Apps environment if not exists
+        run: |
+          # Build with placeholder - will be updated after backend deploymentG_WORKSPACE_ID=$(az monitor log-analytics workspace show \
+              --resource-group ${{ steps.env.outputs.resource_group }} \
+              --workspace-name ${{ steps.env.outputs.container_env }}-logs \
+              --query customerId --output tsv)
+            
+            LOG_WORKSPACE_KEY=$(az monitor log-analytics workspace get-shared-keys \
+              --resource-group ${{ steps.env.outputs.resource_group }} \
+              --workspace-name ${{ steps.env.outputs.container_env }}-logs \
+              --query primarySharedKey --output tsv)
+            
+            az containerapp env create \
+              --name ${{ steps.env.outputs.container_env }} \
+              --resource-group ${{ steps.env.outputs.resource_group }} \
+              --location ${{ env.LOCATION }} \
+              --logs-workspace-id $LOG_WORKSPACE_ID \
+              --logs-workspace-key $LOG_WORKSPACE_KEY
+          fi
 
       - name: Login to Azure Container Registry
         run: |
@@ -69,49 +113,74 @@ jobs:
       - name: Deploy backend to Azure Container Apps
         if: github.event_name == 'push'
         run: |
-          az containerapp update \
-            --name ${{ env.BACKEND_APP }} \
-            --resource-group ${{ env.RESOURCE_GROUP }} \
+          az containerasteps.env.outputs.backend_app }} \
+            --resource-group ${{ steps.env.outputs.resource_group }} \
             --image ${{ env.ACR_LOGIN_SERVER }}/backend:${{ github.sha }} \
-            || az containerapp create \
-              --name ${{ env.BACKEND_APP }} \
-              --resource-group ${{ env.RESOURCE_GROUP }} \
-              --environment ${{ env.CONTAINER_APP_ENV }} \
+            2>/dev/null || az containerapp create \
+              --name ${{ steps.env.outputs.backend_app }} \
+              --resource-group ${{ steps.env.outputs.resource_group }} \
+              --environment ${{ steps.env.outputs.container_env }} \
               --image ${{ env.ACR_LOGIN_SERVER }}/backend:${{ github.sha }} \
               --target-port 8000 \
               --ingress external \
               --registry-server ${{ env.ACR_LOGIN_SERVER }} \
               --cpu 0.5 --memory 1.0Gi \
-              --min-replicas 1 --max-replicas 3
+              --min-replicas 1 --max-replicas 3 \
+              --env-vars ENVIRONMENT=${{ steps.env.outputs.env_name }}
+
+      - name: Get backend URL and update frontend nginx config
+        if: github.event_name == 'push'
+        id: backend
+        run: |
+          BACKEND_FQDN=$(az containerapp show \
+            --name ${{ steps.env.outputs.backend_app }} \
+            --resource-group ${{ steps.env.outputs.resource_group }} \
+            --query properties.configuration.ingress.fqdn -o tsv)
+          echo "fqdn=$BACKEND_FQDN" >> $GITHUB_OUTPUT
+          echo "url=https://$BACKEND_FQDN" >> $GITHUB_OUTPUT
+          
+          # Update nginx config with actual backend URL
+          sed -i "s|BACKEND_URL_PLACEHOLDER|https://$BACKEND_FQDN|g" frontend/nginx.conf
+          
+          # Rebuild frontend with correct backend URL
+          docker build -t ${{ env.ACR_LOGIN_SERVER }}/frontend:${{ github.sha }}-final \
+                       --build-arg BACKEND_URL=https://$BACKEND_FQDN \
+                       ./frontend
+          docker push ${{ env.ACR_LOGIN_SERVER }}/frontend:${{ github.sha }}-final
 
       - name: Deploy frontend to Azure Container Apps
         if: github.event_name == 'push'
         run: |
-          BACKEND_URL=$(az containerapp show --name ${{ env.BACKEND_APP }} --resource-group ${{ env.RESOURCE_GROUP }} --query properties.configuration.ingress.fqdn -o tsv)
           az containerapp update \
-            --name ${{ env.FRONTEND_APP }} \
-            --resource-group ${{ env.RESOURCE_GROUP }} \
-            --image ${{ env.ACR_LOGIN_SERVER }}/frontend:${{ github.sha }} \
-            --set-env-vars BACKEND_URL=https://$BACKEND_URL \
-            || az containerapp create \
-              --name ${{ env.FRONTEND_APP }} \
-              --resource-group ${{ env.RESOURCE_GROUP }} \
-              --environment ${{ env.CONTAINER_APP_ENV }} \
-              --image ${{ env.ACR_LOGIN_SERVER }}/frontend:${{ github.sha }} \
+            --name ${{ steps.env.outputs.frontend_app }} \
+            --resource-group ${{ steps.env.outputs.resource_group }} \
+            --image ${{ env.ACR_LOGIN_SERVER }}/frontend:${{ github.sha }}-final \
+            --set-env-vars BACKEND_URL=${{ steps.backend.outputs.url }} \
+            2>/dev/null || az containerapp create \
+              --name ${{ steps.env.outputs.frontend_app }} \
+              --resource-group ${{ steps.env.outputs.resource_group }} \
+              --environment ${{ steps.env.outputs.container_env }} \
+              --image ${{ env.ACR_LOGIN_SERVER }}/frontend:${{ github.sha }}-final \
               --target-port 80 \
               --ingress external \
               --registry-server ${{ env.ACR_LOGIN_SERVER }} \
               --cpu 0.5 --memory 1.0Gi \
               --min-replicas 1 --max-replicas 3 \
-              --env-vars BACKEND_URL=https://$BACKEND_URL
+              --env-vars BACKEND_URL=${{ steps.backend.outputs.url }} ENVIRONMENT=${{ steps.env.outputs.env_name }}
 
       - name: Display deployment URLs
         if: github.event_name == 'push'
         run: |
-          echo "### Deployment URLs" >> $GITHUB_STEP_SUMMARY
+          echo "### 🚀 Deployment Complete - ${{ steps.env.outputs.env_name }}" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          BACKEND_URL=$(az containerapp show --name ${{ env.BACKEND_APP }} --resource-group ${{ env.RESOURCE_GROUP }} --query properties.configuration.ingress.fqdn -o tsv)
-          FRONTEND_URL=$(az containerapp show --name ${{ env.FRONTEND_APP }} --resource-group ${{ env.RESOURCE_GROUP }} --query properties.configuration.ingress.fqdn -o tsv)
-          echo "**Backend API:** https://$BACKEND_URL" >> $GITHUB_STEP_SUMMARY
-          echo "**Frontend App:** https://$FRONTEND_URL" >> $GITHUB_STEP_SUMMARY
+          FRONTEND_URL=$(az containerapp show \
+            --name ${{ steps.env.outputs.frontend_app }} \
+            --resource-group ${{ steps.env.outputs.resource_group }} \
+            --query properties.configuration.ingress.fqdn -o tsv)
+          echo "**Environment:** ${{ steps.env.outputs.env_name }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Resource Group:** ${{ steps.env.outputs.resource_group }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Backend API:** ${{ steps.backend.outputs.url }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Backend Health:** ${{ steps.backend.outputs.url }}/health" >> $GITHUB_STEP_SUMMARY
+          echo "**Backend Docs:** ${{ steps.backend.outputs.url }}/docs" >> $GITHUB_STEP_SUMMARY
+          echo "**Frontend App:** https://$FRONTEND_URLB_STEP_SUMMARY
           echo "**Environment:** ${{ steps.env.outputs.env_name }}" >> $GITHUB_STEP_SUMMARY
