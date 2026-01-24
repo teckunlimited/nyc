@@ -500,7 +500,7 @@ export class AppComponent implements OnInit {
   
   // Filter properties
   startDate: string = '2021-01-01';
-  endDate: string = '2021-12-31';
+  endDate: string = '2021-02-01';
   selectedTripType: string = '';
   
   // Pagination
@@ -849,7 +849,7 @@ export class AppComponent implements OnInit {
 
   resetFilters() {
     this.startDate = '2021-01-01';
-    this.endDate = '2021-12-31';
+    this.endDate = '2021-02-01';
     this.selectedTripType = '';
     this.loadAggregates();
     this.loadTrips();

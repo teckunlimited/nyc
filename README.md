@@ -71,10 +71,23 @@ nyc/
 ├── tlc/                 # TLC data storage
 │   ├── download_tlc_data.sh  # Data download script
 │   └── *.parquet        # Trip data files (235 files)
+├── docs/                # Documentation
+│   ├── API_DOCUMENTATION.md  # API endpoints and usage
+│   ├── DEPLOYMENT.md    # Azure deployment guide
+│   ├── SECURITY.md      # Security configuration
+│   └── TESTING.md       # Testing documentation
 ├── .github/
 │   └── workflows/       # CI/CD pipelines
 └── docker-compose.yml   # Local development setup
 ```
+
+## Documentation
+
+- **[API Documentation](docs/API_DOCUMENTATION.md)** - Complete API endpoint reference with examples
+- **[Deployment Guide](docs/DEPLOYMENT.md)** - Multi-environment Azure deployment with GitHub Actions
+- **[Security Configuration](docs/SECURITY.md)** - Rate limiting, CORS, and security best practices
+- **[Testing Guide](docs/TESTING.md)** - Backend and frontend test suites with coverage reports
+- **[TLC Data](tlc/README.md)** - Download scripts and data management
 
 ---
 
@@ -165,7 +178,7 @@ RATE_LIMIT_PER_MINUTE=100
 - Azure Container Apps URLs (`https://nyc-*-frontend.*-*.westus.azurecontainerapps.io`) are automatically allowed via regex
 - **Custom Domains**: If you have custom domains, you must add them to `CORS_ORIGINS` (e.g., `https://your-domain.com`)
 - `RATE_LIMIT_PER_MINUTE`: API rate limit per IP address (default: 100)
-- See [SECURITY.md](backend/SECURITY.md) for comprehensive security documentation
+- See [SECURITY.md](docs/SECURITY.md) for comprehensive security documentation
 
 #### Frontend
 
@@ -339,9 +352,9 @@ curl https://{backend-url}/health
 ### Security
 - **Rate Limiting**: 100 req/min for data endpoints, 200 req/min for health checks
 - **CORS Protection**: Automatic allowlist for Azure Container Apps + configurable origins
-- See [SECURITY.md](backend/SECURITY.md) for comprehensive security documentation
+- See [SECURITY.md](docs/SECURITY.md) for comprehensive security documentation
 
-**Full API documentation**: See [API_DOCUMENTATION.md](API_DOCUMENTATION.md)
+**Full API documentation**: See [API_DOCUMENTATION.md](docs/API_DOCUMENTATION.md)
 
 ## Database Schema
 

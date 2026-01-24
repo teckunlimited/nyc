@@ -69,28 +69,44 @@ interface Trip {
       <!-- KPI Cards -->
       <section class="kpi-section">
         <div class="kpi-grid">
-          <div class="kpi-card">
-            <div class="kpi-content">
+          <div class="kpi-card" [class.skeleton]="loading">
+            <div class="kpi-content" *ngIf="!loading">
               <div class="kpi-label">Total Trips</div>
               <div class="kpi-value">{{ totalTrips | number }}</div>
             </div>
+            <div class="skeleton-content" *ngIf="loading">
+              <div class="skeleton-text skeleton-label"></div>
+              <div class="skeleton-text skeleton-value"></div>
+            </div>
           </div>
-          <div class="kpi-card">
-            <div class="kpi-content">
+          <div class="kpi-card" [class.skeleton]="loading">
+            <div class="kpi-content" *ngIf="!loading">
               <div class="kpi-label">Total Revenue</div>
               <div class="kpi-value">{{ totalRevenue | currency }}</div>
             </div>
+            <div class="skeleton-content" *ngIf="loading">
+              <div class="skeleton-text skeleton-label"></div>
+              <div class="skeleton-text skeleton-value"></div>
+            </div>
           </div>
-          <div class="kpi-card">
-            <div class="kpi-content">
+          <div class="kpi-card" [class.skeleton]="loading">
+            <div class="kpi-content" *ngIf="!loading">
               <div class="kpi-label">Avg Distance</div>
               <div class="kpi-value">{{ avgDistance | number:'1.2-2' }} mi</div>
             </div>
+            <div class="skeleton-content" *ngIf="loading">
+              <div class="skeleton-text skeleton-label"></div>
+              <div class="skeleton-text skeleton-value"></div>
+            </div>
           </div>
-          <div class="kpi-card">
-            <div class="kpi-content">
+          <div class="kpi-card" [class.skeleton]="loading">
+            <div class="kpi-content" *ngIf="!loading">
               <div class="kpi-label">Avg Duration</div>
               <div class="kpi-value">{{ avgDuration | number:'1.0-0' }} min</div>
+            </div>
+            <div class="skeleton-content" *ngIf="loading">
+              <div class="skeleton-text skeleton-label"></div>
+              <div class="skeleton-text skeleton-value"></div>
             </div>
           </div>
         </div>
@@ -101,8 +117,12 @@ interface Trip {
         <div class="chart-row">
           <div class="chart-card">
             <h3>Daily Trips Volume</h3>
+            <div class="chart-loader" *ngIf="loadingCharts">
+              <div class="spinner"></div>
+              <p>Loading chart data...</p>
+            </div>
             <highcharts-chart
-              *ngIf="tripsChartOptions"
+              *ngIf="tripsChartOptions && !loadingCharts"
               [Highcharts]="Highcharts"
               [options]="tripsChartOptions"
               style="width: 100%; height: 350px; display: block;"
@@ -110,8 +130,12 @@ interface Trip {
           </div>
           <div class="chart-card">
             <h3>Revenue Trend</h3>
+            <div class="chart-loader" *ngIf="loadingCharts">
+              <div class="spinner"></div>
+              <p>Loading chart data...</p>
+            </div>
             <highcharts-chart
-              *ngIf="revenueChartOptions"
+              *ngIf="revenueChartOptions && !loadingCharts"
               [Highcharts]="Highcharts"
               [options]="revenueChartOptions"
               style="width: 100%; height: 350px; display: block;"
@@ -121,8 +145,12 @@ interface Trip {
         <div class="chart-row">
           <div class="chart-card">
             <h3>Trip Type Distribution</h3>
+            <div class="chart-loader" *ngIf="loadingCharts">
+              <div class="spinner"></div>
+              <p>Loading chart data...</p>
+            </div>
             <highcharts-chart
-              *ngIf="pieChartOptions"
+              *ngIf="pieChartOptions && !loadingCharts"
               [Highcharts]="Highcharts"
               [options]="pieChartOptions"
               style="width: 100%; height: 350px; display: block;"
@@ -130,8 +158,12 @@ interface Trip {
           </div>
           <div class="chart-card">
             <h3>Average Distance by Type</h3>
+            <div class="chart-loader" *ngIf="loadingCharts">
+              <div class="spinner"></div>
+              <p>Loading chart data...</p>
+            </div>
             <highcharts-chart
-              *ngIf="barChartOptions"
+              *ngIf="barChartOptions && !loadingCharts"
               [Highcharts]="Highcharts"
               [options]="barChartOptions"
               style="width: 100%; height: 350px; display: block;"
@@ -484,6 +516,91 @@ interface Trip {
       font-size: 1rem;
     }
 
+    /* Loading Skeleton Styles */
+    .skeleton {
+      position: relative;
+      overflow: hidden;
+    }
+
+    .skeleton-content {
+      padding: 1rem;
+    }
+
+    .skeleton-text {
+      background: linear-gradient(90deg, #21262d 25%, #30363d 50%, #21262d 75%);
+      background-size: 200% 100%;
+      animation: shimmer 1.5s infinite;
+      border-radius: 4px;
+      height: 20px;
+      margin-bottom: 0.75rem;
+    }
+
+    .skeleton-label {
+      width: 60%;
+      height: 16px;
+    }
+
+    .skeleton-value {
+      width: 80%;
+      height: 32px;
+      margin-bottom: 0;
+    }
+
+    @keyframes shimmer {
+      0% {
+        background-position: 200% 0;
+      }
+      100% {
+        background-position: -200% 0;
+      }
+    }
+
+    /* Chart Loader */
+    .chart-loader {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      height: 350px;
+      gap: 1rem;
+    }
+
+    .chart-loader p {
+      color: #8b949e;
+      font-size: 0.875rem;
+    }
+
+    /* Spinner Animation */
+    .spinner {
+      width: 40px;
+      height: 40px;
+      border: 4px solid #21262d;
+      border-top: 4px solid #58a6ff;
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+    }
+
+    @keyframes spin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+
+    /* Fade-in animation for loaded content */
+    .kpi-card:not(.skeleton) .kpi-content {
+      animation: fadeIn 0.3s ease-in;
+    }
+
+    @keyframes fadeIn {
+      from {
+        opacity: 0;
+        transform: translateY(10px);
+      }
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+
     /* Responsive */
     @media (max-width: 1024px) {
       .chart-row {
@@ -511,7 +628,7 @@ export class AppComponent implements OnInit {
   
   // Filter properties
   startDate: string = '2021-01-01';
-  endDate: string = '2021-12-31';
+  endDate: string = '2021-02-01';
   selectedTripType: string = '';
   
   // Pagination for trips
@@ -523,8 +640,10 @@ export class AppComponent implements OnInit {
   currentAggregatesPage = 1;
   aggregatesPageSize = 20;
   
-  // Loading state
+  // Loading states (granular for better UX)
   loading = false;
+  loadingCharts = false;
+  loadingTrips = false;
   
   // Computed statistics
   totalTrips = 0;
@@ -549,6 +668,7 @@ export class AppComponent implements OnInit {
 
   loadAggregates() {
     this.loading = true;
+    this.loadingCharts = true;
     const apiUrl = environment.apiUrl || 'http://localhost:8000';
     
     let url = `${apiUrl}/api/aggregates/daily?start_date=${this.startDate}&end_date=${this.endDate}&limit=1000`;
@@ -562,18 +682,27 @@ export class AppComponent implements OnInit {
           console.log('Loaded aggregates:', response.data.length, 'records');
           this.aggregates = response.data;
           this.currentAggregatesPage = 1;
+          
+          // Calculate stats immediately for faster KPI display
           this.calculateStatistics();
-          this.updateCharts();
           this.loading = false;
+          
+          // Update charts after a slight delay for perceived performance
+          setTimeout(() => {
+            this.updateCharts();
+            this.loadingCharts = false;
+          }, 100);
         },
         error: (error) => {
           console.error('Error loading aggregates:', error);
           this.loading = false;
+          this.loadingCharts = false;
         }
       });
   }
 
   loadTrips() {
+    this.loadingTrips = true;
     const apiUrl = environment.apiUrl || 'http://localhost:8000';
     
     let url = `${apiUrl}/api/trips?page=${this.currentPage}&page_size=${this.pageSize}`;
@@ -586,9 +715,11 @@ export class AppComponent implements OnInit {
         next: (response) => {
           this.trips = response.data;
           this.totalPages = Math.ceil(response.total / response.page_size);
+          this.loadingTrips = false;
         },
         error: (error) => {
           console.error('Error loading trips:', error);
+          this.loadingTrips = false;
         }
       });
   }
@@ -910,7 +1041,7 @@ export class AppComponent implements OnInit {
 
   resetFilters() {
     this.startDate = '2021-01-01';
-    this.endDate = '2021-12-31';
+    this.endDate = '2021-02-01';
     this.selectedTripType = '';
     this.currentAggregatesPage = 1;
     this.loadAggregates();
