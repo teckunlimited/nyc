@@ -43,4 +43,6 @@ secrets/
 *CREDENTIALS*.md
 *credentials*.json
 
-tlc/
+# Data files
+*.parquet
+*.csv

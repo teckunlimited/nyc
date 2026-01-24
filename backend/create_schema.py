@@ -4,8 +4,9 @@ Run this to create all tables and indexes for TLC trip data
 """
 import sys
 from database import engine
-from models import Base, YellowTripData, GreenTripData, FHVTripData, FHVHVTripData
+from models import Base, YellowTripData, GreenTripData, FHVTripData, FHVHVTripData, TaxiZoneLookup
 from sqlalchemy import text
+
 
 
 def create_tables():
@@ -27,42 +28,8 @@ def create_partitions():
     
     with engine.connect() as conn:
         # Create additional performance indexes
-        
-        # Partial indexes for common filters
-        conn.execute(text("""
-            CREATE INDEX IF NOT EXISTS idx_yellow_recent_trips 
-            ON yellow_trips (tpep_pickup_datetime DESC) 
-            WHERE tpep_pickup_datetime > CURRENT_DATE - INTERVAL '90 days'
-        """))
-        
-        conn.execute(text("""
-            CREATE INDEX IF NOT EXISTS idx_green_recent_trips 
-            ON green_trips (lpep_pickup_datetime DESC) 
-            WHERE lpep_pickup_datetime > CURRENT_DATE - INTERVAL '90 days'
-        """))
-        
-        conn.execute(text("""
-            CREATE INDEX IF NOT EXISTS idx_fhv_recent_trips 
-            ON fhv_trips (pickup_datetime DESC) 
-            WHERE pickup_datetime > CURRENT_DATE - INTERVAL '90 days'
-        """))
-        
-        conn.execute(text("""
-            CREATE INDEX IF NOT EXISTS idx_fhvhv_recent_trips 
-            ON fhvhv_trips (pickup_datetime DESC) 
-            WHERE pickup_datetime > CURRENT_DATE - INTERVAL '90 days'
-        """))
-        
-        # GiST indexes for range queries on datetime
-        conn.execute(text("""
-            CREATE INDEX IF NOT EXISTS idx_yellow_datetime_range 
-            ON yellow_trips USING GIST (tpep_pickup_datetime, tpep_dropoff_datetime)
-        """))
-        
-        conn.execute(text("""
-            CREATE INDEX IF NOT EXISTS idx_green_datetime_range 
-            ON green_trips USING GIST (lpep_pickup_datetime, lpep_dropoff_datetime)
-        """))
+        # Note: Removed partial indexes with CURRENT_DATE as they're not immutable in PostgreSQL
+        # Note: GIST indexes require btree_gist extension for timestamp types
         
         conn.commit()
         print("✓ Performance indexes created")
@@ -73,76 +40,114 @@ def create_views():
     print("\nCreating analytics views...")
     
     with engine.connect() as conn:
-        # Drop existing views
-        conn.execute(text("DROP MATERIALIZED VIEW IF EXISTS trip_summary_view"))
+        # Drop existing views (handle both table and materialized view cases)
+        try:
+            conn.execute(text("DROP MATERIALIZED VIEW IF EXISTS trip_summary_view CASCADE"))
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            conn.execute(text("DROP TABLE IF EXISTS trip_summary_view CASCADE"))
+            conn.commit()
         
-        # Create unified trip summary view
+        # Create unified trip summary view with zone enrichment
         conn.execute(text("""
             CREATE MATERIALIZED VIEW trip_summary_view AS
             SELECT 
-                id,
+                y.id,
                 'yellow' as trip_type,
-                tpep_pickup_datetime as pickup_datetime,
-                tpep_dropoff_datetime as dropoff_datetime,
-                pu_location_id,
-                do_location_id,
-                trip_distance,
-                fare_amount,
-                tip_amount,
-                total_amount,
-                EXTRACT(EPOCH FROM (tpep_dropoff_datetime - tpep_pickup_datetime))/60 as duration_minutes
-            FROM yellow_trips
+                y.tpep_pickup_datetime as pickup_datetime,
+                y.tpep_dropoff_datetime as dropoff_datetime,
+                y.pu_location_id,
+                pu.borough as pickup_borough,
+                pu.zone as pickup_zone,
+                pu.service_zone as pickup_service_zone,
+                y.do_location_id,
+                dz.borough as dropoff_borough,
+                dz.zone as dropoff_zone,
+                dz.service_zone as dropoff_service_zone,
+                y.trip_distance,
+                y.fare_amount,
+                y.tip_amount,
+                y.total_amount,
+                EXTRACT(EPOCH FROM (y.tpep_dropoff_datetime - y.tpep_pickup_datetime))/60 as duration_minutes
+            FROM yellow_trips y
+            LEFT JOIN taxi_zone_lookup pu ON y.pu_location_id = pu.location_id
+            LEFT JOIN taxi_zone_lookup dz ON y.do_location_id = dz.location_id
             
             UNION ALL
             
             SELECT 
-                id,
+                g.id,
                 'green' as trip_type,
-                lpep_pickup_datetime as pickup_datetime,
-                lpep_dropoff_datetime as dropoff_datetime,
-                pu_location_id,
-                do_location_id,
-                trip_distance,
-                fare_amount,
-                tip_amount,
-                total_amount,
-                EXTRACT(EPOCH FROM (lpep_dropoff_datetime - lpep_pickup_datetime))/60 as duration_minutes
-            FROM green_trips
+                g.lpep_pickup_datetime as pickup_datetime,
+                g.lpep_dropoff_datetime as dropoff_datetime,
+                g.pu_location_id,
+                pu.borough as pickup_borough,
+                pu.zone as pickup_zone,
+                pu.service_zone as pickup_service_zone,
+                g.do_location_id,
+                dz.borough as dropoff_borough,
+                dz.zone as dropoff_zone,
+                dz.service_zone as dropoff_service_zone,
+                g.trip_distance,
+                g.fare_amount,
+                g.tip_amount,
+                g.total_amount,
+                EXTRACT(EPOCH FROM (g.lpep_dropoff_datetime - g.lpep_pickup_datetime))/60 as duration_minutes
+            FROM green_trips g
+            LEFT JOIN taxi_zone_lookup pu ON g.pu_location_id = pu.location_id
+            LEFT JOIN taxi_zone_lookup dz ON g.do_location_id = dz.location_id
             
             UNION ALL
             
             SELECT 
-                id,
+                f.id,
                 'fhv' as trip_type,
-                pickup_datetime,
-                dropoff_datetime,
-                CAST(pu_location_id AS INTEGER) as pu_location_id,
-                CAST(do_location_id AS INTEGER) as do_location_id,
+                f.pickup_datetime,
+                f.dropoff_datetime,
+                CAST(f.pu_location_id AS INTEGER) as pu_location_id,
+                pu.borough as pickup_borough,
+                pu.zone as pickup_zone,
+                pu.service_zone as pickup_service_zone,
+                CAST(f.do_location_id AS INTEGER) as do_location_id,
+                dz.borough as dropoff_borough,
+                dz.zone as dropoff_zone,
+                dz.service_zone as dropoff_service_zone,
                 NULL::float as trip_distance,
                 NULL::float as fare_amount,
                 NULL::float as tip_amount,
                 NULL::float as total_amount,
-                EXTRACT(EPOCH FROM (dropoff_datetime - pickup_datetime))/60 as duration_minutes
-            FROM fhv_trips
+                EXTRACT(EPOCH FROM (f.dropoff_datetime - f.pickup_datetime))/60 as duration_minutes
+            FROM fhv_trips f
+            LEFT JOIN taxi_zone_lookup pu ON CAST(f.pu_location_id AS INTEGER) = pu.location_id
+            LEFT JOIN taxi_zone_lookup dz ON CAST(f.do_location_id AS INTEGER) = dz.location_id
             
             UNION ALL
             
             SELECT 
-                id,
+                h.id,
                 'fhvhv' as trip_type,
-                pickup_datetime,
-                dropoff_datetime,
-                pu_location_id,
-                do_location_id,
-                trip_miles as trip_distance,
-                base_passenger_fare as fare_amount,
-                tips as tip_amount,
-                (COALESCE(base_passenger_fare, 0) + COALESCE(tolls, 0) + 
-                 COALESCE(bcf, 0) + COALESCE(sales_tax, 0) + 
-                 COALESCE(congestion_surcharge, 0) + COALESCE(airport_fee, 0) + 
-                 COALESCE(tips, 0)) as total_amount,
-                EXTRACT(EPOCH FROM (dropoff_datetime - pickup_datetime))/60 as duration_minutes
-            FROM fhvhv_trips
+                h.pickup_datetime,
+                h.dropoff_datetime,
+                h.pu_location_id,
+                pu.borough as pickup_borough,
+                pu.zone as pickup_zone,
+                pu.service_zone as pickup_service_zone,
+                h.do_location_id,
+                dz.borough as dropoff_borough,
+                dz.zone as dropoff_zone,
+                dz.service_zone as dropoff_service_zone,
+                h.trip_miles as trip_distance,
+                h.base_passenger_fare as fare_amount,
+                h.tips as tip_amount,
+                (COALESCE(h.base_passenger_fare, 0) + COALESCE(h.tolls, 0) + 
+                 COALESCE(h.bcf, 0) + COALESCE(h.sales_tax, 0) + 
+                 COALESCE(h.congestion_surcharge, 0) + COALESCE(h.airport_fee, 0) + 
+                 COALESCE(h.tips, 0)) as total_amount,
+                EXTRACT(EPOCH FROM (h.dropoff_datetime - h.pickup_datetime))/60 as duration_minutes
+            FROM fhvhv_trips h
+            LEFT JOIN taxi_zone_lookup pu ON h.pu_location_id = pu.location_id
+            LEFT JOIN taxi_zone_lookup dz ON h.do_location_id = dz.location_id
         """))
         
         # Create indexes on materialized view
@@ -159,6 +164,115 @@ def create_views():
         conn.commit()
         print("✓ Materialized view created")
         print("  Note: Refresh with 'REFRESH MATERIALIZED VIEW trip_summary_view' after loading data")
+
+
+def create_daily_aggregates():
+    """Create daily trip aggregates materialized view"""
+    print("\nCreating daily aggregates view...")
+    
+    with engine.connect() as conn:
+        # Drop existing view if present
+        try:
+            conn.execute(text("DROP MATERIALIZED VIEW IF EXISTS daily_trip_aggregates CASCADE"))
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            conn.execute(text("DROP TABLE IF EXISTS daily_trip_aggregates CASCADE"))
+            conn.commit()
+        
+        # Create daily aggregates materialized view
+        conn.execute(text("""
+            CREATE MATERIALIZED VIEW daily_trip_aggregates AS
+            SELECT 
+                DATE(tpep_pickup_datetime) as trip_date,
+                'yellow' as trip_type,
+                COUNT(*) as total_trips,
+                SUM(total_amount) as total_revenue,
+                AVG(trip_distance) as avg_trip_distance,
+                AVG(EXTRACT(EPOCH FROM (tpep_dropoff_datetime - tpep_pickup_datetime))/60) as avg_trip_duration,
+                AVG(fare_amount) as avg_fare_amount,
+                AVG(tip_amount) as avg_tip_amount,
+                SUM(passenger_count) as total_passengers,
+                AVG(passenger_count) as avg_passengers
+            FROM yellow_trips
+            WHERE tpep_pickup_datetime IS NOT NULL 
+                AND tpep_dropoff_datetime IS NOT NULL
+                AND total_amount IS NOT NULL
+            GROUP BY DATE(tpep_pickup_datetime)
+            
+            UNION ALL
+            
+            SELECT 
+                DATE(lpep_pickup_datetime) as trip_date,
+                'green' as trip_type,
+                COUNT(*) as total_trips,
+                SUM(total_amount) as total_revenue,
+                AVG(trip_distance) as avg_trip_distance,
+                AVG(EXTRACT(EPOCH FROM (lpep_dropoff_datetime - lpep_pickup_datetime))/60) as avg_trip_duration,
+                AVG(fare_amount) as avg_fare_amount,
+                AVG(tip_amount) as avg_tip_amount,
+                SUM(passenger_count) as total_passengers,
+                AVG(passenger_count) as avg_passengers
+            FROM green_trips
+            WHERE lpep_pickup_datetime IS NOT NULL 
+                AND lpep_dropoff_datetime IS NOT NULL
+                AND total_amount IS NOT NULL
+            GROUP BY DATE(lpep_pickup_datetime)
+            
+            UNION ALL
+            
+            SELECT 
+                DATE(pickup_datetime) as trip_date,
+                'fhv' as trip_type,
+                COUNT(*) as total_trips,
+                NULL::float as total_revenue,
+                NULL::float as avg_trip_distance,
+                AVG(EXTRACT(EPOCH FROM (dropoff_datetime - pickup_datetime))/60) as avg_trip_duration,
+                NULL::float as avg_fare_amount,
+                NULL::float as avg_tip_amount,
+                NULL::bigint as total_passengers,
+                NULL::float as avg_passengers
+            FROM fhv_trips
+            WHERE pickup_datetime IS NOT NULL 
+                AND dropoff_datetime IS NOT NULL
+            GROUP BY DATE(pickup_datetime)
+            
+            UNION ALL
+            
+            SELECT 
+                DATE(pickup_datetime) as trip_date,
+                'fhvhv' as trip_type,
+                COUNT(*) as total_trips,
+                SUM(COALESCE(base_passenger_fare, 0) + COALESCE(tolls, 0) + 
+                    COALESCE(bcf, 0) + COALESCE(sales_tax, 0) + 
+                    COALESCE(congestion_surcharge, 0) + COALESCE(airport_fee, 0) + 
+                    COALESCE(tips, 0)) as total_revenue,
+                AVG(trip_miles) as avg_trip_distance,
+                AVG(EXTRACT(EPOCH FROM (dropoff_datetime - pickup_datetime))/60) as avg_trip_duration,
+                AVG(base_passenger_fare) as avg_fare_amount,
+                AVG(tips) as avg_tip_amount,
+                NULL::bigint as total_passengers,
+                NULL::float as avg_passengers
+            FROM fhvhv_trips
+            WHERE pickup_datetime IS NOT NULL 
+                AND dropoff_datetime IS NOT NULL
+            GROUP BY DATE(pickup_datetime)
+        """))
+        
+        # Create indexes on the materialized view
+        conn.execute(text("""
+            CREATE UNIQUE INDEX idx_daily_agg_date_type ON daily_trip_aggregates (trip_date, trip_type)
+        """))
+        conn.execute(text("""
+            CREATE INDEX idx_daily_agg_date ON daily_trip_aggregates (trip_date DESC)
+        """))
+        conn.execute(text("""
+            CREATE INDEX idx_daily_agg_type ON daily_trip_aggregates (trip_type)
+        """))
+        
+        conn.commit()
+        print("✓ Daily aggregates materialized view created")
+        print("  Note: Refresh with 'REFRESH MATERIALIZED VIEW daily_trip_aggregates' after loading data")
 
 
 def verify_schema():
@@ -208,6 +322,7 @@ if __name__ == "__main__":
         create_tables()
         create_partitions()
         create_views()
+        create_daily_aggregates()
         verify_schema()
         
         print("\n" + "=" * 60)

@@ -2,7 +2,7 @@
 TLC Trip Data Models for PostgreSQL
 Supports Yellow, Green, FHV, and FHVHV trip data with optimized indexing for analytics
 """
-from sqlalchemy import Column, Integer, BigInteger, String, Float, DateTime, Index, text
+from sqlalchemy import Column, Integer, BigInteger, String, Float, DateTime, Date, Index, text
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.ext.hybrid import hybrid_property
 from datetime import datetime
@@ -39,7 +39,8 @@ class YellowTripData(Base):
     airport_fee = Column(Float)
     
     # Metadata
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, server_default=text('CURRENT_TIMESTAMP'), nullable=False)
+    updated_at = Column(DateTime, server_default=text('CURRENT_TIMESTAMP'), onupdate=datetime.utcnow, nullable=False)
     
     @hybrid_property
     def trip_duration_minutes(self):
@@ -96,7 +97,8 @@ class GreenTripData(Base):
     congestion_surcharge = Column(Float)
     
     # Metadata
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, server_default=text('CURRENT_TIMESTAMP'), nullable=False)
+    updated_at = Column(DateTime, server_default=text('CURRENT_TIMESTAMP'), onupdate=datetime.utcnow, nullable=False)
     
     @hybrid_property
     def trip_duration_minutes(self):
@@ -140,7 +142,8 @@ class FHVTripData(Base):
     affiliated_base_number = Column(String(10))
     
     # Metadata
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, server_default=text('CURRENT_TIMESTAMP'), nullable=False)
+    updated_at = Column(DateTime, server_default=text('CURRENT_TIMESTAMP'), onupdate=datetime.utcnow, nullable=False)
     
     @hybrid_property
     def trip_duration_minutes(self):
@@ -200,7 +203,8 @@ class FHVHVTripData(Base):
     wav_match_flag = Column(String(1))
     
     # Metadata
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, server_default=text('CURRENT_TIMESTAMP'), nullable=False)
+    updated_at = Column(DateTime, server_default=text('CURRENT_TIMESTAMP'), onupdate=datetime.utcnow, nullable=False)
     
     @hybrid_property
     def total_fare(self):
@@ -267,3 +271,47 @@ class TripSummary(Base):
     fare_amount = Column(Float)
     tip_amount = Column(Float)
     total_amount = Column(Float)
+
+class TaxiZoneLookup(Base):
+    """Taxi Zone Lookup Table for enriching trip data"""
+    __tablename__ = 'taxi_zone_lookup'
+    
+    # Primary key
+    location_id = Column(Integer, primary_key=True)
+    
+    # Zone information
+    borough = Column(String(50))
+    zone = Column(String(100), index=True)
+    service_zone = Column(String(50))
+
+
+class DailyTripAggregates(Base):
+    """Daily aggregated trip statistics by trip type
+    
+    This is a materialized view that computes daily metrics from raw trip data:
+    - Total trips per day
+    - Total revenue per day
+    - Average trip distance
+    - Average trip duration
+    """
+    __tablename__ = 'daily_trip_aggregates'
+    
+    # Composite primary key
+    trip_date = Column(Date, primary_key=True)
+    trip_type = Column(String(10), primary_key=True)
+    
+    # Aggregate metrics
+    total_trips = Column(BigInteger)
+    total_revenue = Column(Float)
+    avg_trip_distance = Column(Float)
+    avg_trip_duration = Column(Float)
+    avg_fare_amount = Column(Float)
+    avg_tip_amount = Column(Float)
+    
+    # Additional useful metrics
+    total_passengers = Column(BigInteger)
+    avg_passengers = Column(Float)
+    
+    # Metadata
+    created_at = Column(DateTime, server_default=text('CURRENT_TIMESTAMP'), nullable=False)
+    updated_at = Column(DateTime, server_default=text('CURRENT_TIMESTAMP'), onupdate=datetime.utcnow, nullable=False)

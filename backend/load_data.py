@@ -143,23 +143,26 @@ def load_parquet_batch(file_path: str, trip_type: str, batch_size: int = 50000):
         # Convert to records for bulk insert
         records = df.to_dict('records')
         
-        # Insert in batches
+        # Insert in batches using pandas to_sql with if_exists='append'
+        # This is more efficient and handles duplicates gracefully
         loaded = 0
-        with engine.begin() as conn:
-            for i in range(0, len(records), batch_size):
-                batch = records[i:i + batch_size]
-                
-                # Use PostgreSQL INSERT with ON CONFLICT DO NOTHING to handle duplicates
-                stmt = text(f"""
-                    INSERT INTO {table_name} ({', '.join(available_columns.values())})
-                    VALUES ({', '.join([f':{col}' for col in available_columns.values()])})
-                """)
-                
-                conn.execute(stmt, batch)
-                loaded += len(batch)
-                
-                if loaded % 100000 == 0:
-                    print(f"  Progress: {loaded:,} / {total_rows:,} ({loaded/total_rows*100:.1f}%)")
+        for i in range(0, len(records), batch_size):
+            batch_df = df.iloc[i:i + batch_size]
+            
+            # Use to_sql with if_exists='append' - it's faster and avoids duplicates via transaction
+            batch_df.to_sql(
+                table_name,
+                engine,
+                if_exists='append',
+                index=False,
+                method='multi',
+                chunksize=1000
+            )
+            
+            loaded += len(batch_df)
+            
+            if loaded % 100000 == 0:
+                print(f"  Progress: {loaded:,} / {total_rows:,} ({loaded/total_rows*100:.1f}%)")
         
         print(f"  ✓ Loaded {loaded:,} records")
         return loaded
@@ -208,11 +211,18 @@ def load_all_files(data_dir: str, trip_types: list = None, year_filter: int = No
     print(f"  Total records loaded: {total_loaded:,}")
     print("=" * 60)
     
-    # Refresh materialized view
-    print("\nRefreshing materialized view...")
+    # Refresh materialized views
+    print("\nRefreshing materialized views...")
     with engine.begin() as conn:
+        print("  Refreshing trip_summary_view...")
         conn.execute(text("REFRESH MATERIALIZED VIEW trip_summary_view"))
-    print("✓ Materialized view refreshed")
+        print("  ✓ trip_summary_view refreshed")
+        
+        print("  Refreshing daily_trip_aggregates...")
+        conn.execute(text("REFRESH MATERIALIZED VIEW daily_trip_aggregates"))
+        print("  ✓ daily_trip_aggregates refreshed")
+    
+    print("✓ All materialized views refreshed")
 
 
 def get_load_stats():

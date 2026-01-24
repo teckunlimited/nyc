@@ -5,7 +5,7 @@ from sqlalchemy import text
 import os
 import logging
 from database import get_db, engine, Base
-from models import YellowTripData, GreenTripData, FHVTripData, FHVHVTripData
+from models import YellowTripData, GreenTripData, FHVTripData, FHVHVTripData, TaxiZoneLookup
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -73,77 +73,109 @@ def create_schema_on_startup():
             # Drop existing view if it exists
             conn.execute(text("DROP MATERIALIZED VIEW IF EXISTS trip_summary_view"))
             
-            # Create unified trip summary view
+            # Create unified trip summary view with zone enrichment
             conn.execute(text("""
                 CREATE MATERIALIZED VIEW trip_summary_view AS
                 SELECT 
-                    id,
+                    y.id,
                     'yellow' as trip_type,
-                    tpep_pickup_datetime as pickup_datetime,
-                    tpep_dropoff_datetime as dropoff_datetime,
-                    pu_location_id,
-                    do_location_id,
-                    trip_distance,
-                    fare_amount,
-                    tip_amount,
-                    total_amount,
-                    EXTRACT(EPOCH FROM (tpep_dropoff_datetime - tpep_pickup_datetime))/60 as duration_minutes
-                FROM yellow_trips
-                WHERE tpep_pickup_datetime IS NOT NULL AND tpep_dropoff_datetime IS NOT NULL
+                    y.tpep_pickup_datetime as pickup_datetime,
+                    y.tpep_dropoff_datetime as dropoff_datetime,
+                    y.pu_location_id,
+                    pu.borough as pickup_borough,
+                    pu.zone as pickup_zone,
+                    pu.service_zone as pickup_service_zone,
+                    y.do_location_id,
+                    do.borough as dropoff_borough,
+                    do.zone as dropoff_zone,
+                    do.service_zone as dropoff_service_zone,
+                    y.trip_distance,
+                    y.fare_amount,
+                    y.tip_amount,
+                    y.total_amount,
+                    EXTRACT(EPOCH FROM (y.tpep_dropoff_datetime - y.tpep_pickup_datetime))/60 as duration_minutes
+                FROM yellow_trips y
+                LEFT JOIN taxi_zone_lookup pu ON y.pu_location_id = pu.location_id
+                LEFT JOIN taxi_zone_lookup do ON y.do_location_id = do.location_id
+                WHERE y.tpep_pickup_datetime IS NOT NULL AND y.tpep_dropoff_datetime IS NOT NULL
                 
                 UNION ALL
                 
                 SELECT 
-                    id,
+                    g.id,
                     'green' as trip_type,
-                    lpep_pickup_datetime as pickup_datetime,
-                    lpep_dropoff_datetime as dropoff_datetime,
-                    pu_location_id,
-                    do_location_id,
-                    trip_distance,
-                    fare_amount,
-                    tip_amount,
-                    total_amount,
-                    EXTRACT(EPOCH FROM (lpep_dropoff_datetime - lpep_pickup_datetime))/60 as duration_minutes
-                FROM green_trips
-                WHERE lpep_pickup_datetime IS NOT NULL AND lpep_dropoff_datetime IS NOT NULL
+                    g.lpep_pickup_datetime as pickup_datetime,
+                    g.lpep_dropoff_datetime as dropoff_datetime,
+                    g.pu_location_id,
+                    pu.borough as pickup_borough,
+                    pu.zone as pickup_zone,
+                    pu.service_zone as pickup_service_zone,
+                    g.do_location_id,
+                    do.borough as dropoff_borough,
+                    do.zone as dropoff_zone,
+                    do.service_zone as dropoff_service_zone,
+                    g.trip_distance,
+                    g.fare_amount,
+                    g.tip_amount,
+                    g.total_amount,
+                    EXTRACT(EPOCH FROM (g.lpep_dropoff_datetime - g.lpep_pickup_datetime))/60 as duration_minutes
+                FROM green_trips g
+                LEFT JOIN taxi_zone_lookup pu ON g.pu_location_id = pu.location_id
+                LEFT JOIN taxi_zone_lookup do ON g.do_location_id = do.location_id
+                WHERE g.lpep_pickup_datetime IS NOT NULL AND g.lpep_dropoff_datetime IS NOT NULL
                 
                 UNION ALL
                 
                 SELECT 
-                    id,
+                    f.id,
                     'fhv' as trip_type,
-                    pickup_datetime,
-                    dropoff_datetime,
-                    CAST(pu_location_id AS INTEGER) as pu_location_id,
-                    CAST(do_location_id AS INTEGER) as do_location_id,
+                    f.pickup_datetime,
+                    f.dropoff_datetime,
+                    CAST(f.pu_location_id AS INTEGER) as pu_location_id,
+                    pu.borough as pickup_borough,
+                    pu.zone as pickup_zone,
+                    pu.service_zone as pickup_service_zone,
+                    CAST(f.do_location_id AS INTEGER) as do_location_id,
+                    do.borough as dropoff_borough,
+                    do.zone as dropoff_zone,
+                    do.service_zone as dropoff_service_zone,
                     NULL::float as trip_distance,
                     NULL::float as fare_amount,
                     NULL::float as tip_amount,
                     NULL::float as total_amount,
-                    EXTRACT(EPOCH FROM (dropoff_datetime - pickup_datetime))/60 as duration_minutes
-                FROM fhv_trips
-                WHERE pickup_datetime IS NOT NULL AND dropoff_datetime IS NOT NULL
+                    EXTRACT(EPOCH FROM (f.dropoff_datetime - f.pickup_datetime))/60 as duration_minutes
+                FROM fhv_trips f
+                LEFT JOIN taxi_zone_lookup pu ON CAST(f.pu_location_id AS INTEGER) = pu.location_id
+                LEFT JOIN taxi_zone_lookup do ON CAST(f.do_location_id AS INTEGER) = do.location_id
+                WHERE f.pickup_datetime IS NOT NULL AND f.dropoff_datetime IS NOT NULL
                 
                 UNION ALL
                 
                 SELECT 
-                    id,
+                    h.id,
                     'fhvhv' as trip_type,
-                    pickup_datetime,
-                    dropoff_datetime,
-                    pu_location_id,
-                    do_location_id,
-                    trip_miles as trip_distance,
-                    base_passenger_fare as fare_amount,
-                    tips as tip_amount,
-                    (COALESCE(base_passenger_fare, 0) + COALESCE(tolls, 0) + 
-                     COALESCE(bcf, 0) + COALESCE(sales_tax, 0) + 
-                     COALESCE(congestion_surcharge, 0) + COALESCE(airport_fee, 0) + 
-                     COALESCE(tips, 0)) as total_amount,
-                    EXTRACT(EPOCH FROM (dropoff_datetime - pickup_datetime))/60 as duration_minutes
-                FROM fhvhv_trips
-                WHERE pickup_datetime IS NOT NULL AND dropoff_datetime IS NOT NULL
+                    h.pickup_datetime,
+                    h.dropoff_datetime,
+                    h.pu_location_id,
+                    pu.borough as pickup_borough,
+                    pu.zone as pickup_zone,
+                    pu.service_zone as pickup_service_zone,
+                    h.do_location_id,
+                    do.borough as dropoff_borough,
+                    do.zone as dropoff_zone,
+                    do.service_zone as dropoff_service_zone,
+                    h.trip_miles as trip_distance,
+                    h.base_passenger_fare as fare_amount,
+                    h.tips as tip_amount,
+                    (COALESCE(h.base_passenger_fare, 0) + COALESCE(h.tolls, 0) + 
+                     COALESCE(h.bcf, 0) + COALESCE(h.sales_tax, 0) + 
+                     COALESCE(h.congestion_surcharge, 0) + COALESCE(h.airport_fee, 0) + 
+                     COALESCE(h.tips, 0)) as total_amount,
+                    EXTRACT(EPOCH FROM (h.dropoff_datetime - h.pickup_datetime))/60 as duration_minutes
+                FROM fhvhv_trips h
+                LEFT JOIN taxi_zone_lookup pu ON h.pu_location_id = pu.location_id
+                LEFT JOIN taxi_zone_lookup do ON h.do_location_id = do.location_id
+                WHERE h.pickup_datetime IS NOT NULL AND h.dropoff_datetime IS NOT NULL
             """))
             
             # Create indexes on materialized view
