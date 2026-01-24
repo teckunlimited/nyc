@@ -14,6 +14,26 @@ A production-ready, full-stack analytics platform for NYC TLC (Taxi & Limousine 
 - **Scalable Architecture** - Deployed on Azure with CI/CD pipelines
 - **API Security** - Rate limiting (100 req/min) and CORS protection
 
+## Security Approach
+
+This platform uses **rate limiting** and **CORS protection** for API security rather than API key authentication. This design choice is intentional for several reasons:
+
+1. **Public Analytics Use Case** - The platform provides public NYC trip data analytics. There's no sensitive user data or private information that requires authentication.
+
+2. **Frontend Security Limitation** - API keys stored in frontend JavaScript would be exposed in the browser, providing no real security benefit. Any user could inspect the network requests and extract the key.
+
+3. **Avoiding Unnecessary Complexity** - Implementing API key security for a frontend application would require:
+   - A backend proxy/BFF (Backend-for-Frontend) to hide the keys
+   - Additional service deployment and maintenance
+   - Extra network hops and latency
+   - More complex CI/CD pipelines
+
+4. **Rate Limiting is Sufficient** - The 100 requests/minute rate limit effectively prevents abuse while allowing legitimate users full access to the analytics dashboard.
+
+5. **Standard Pattern for Public APIs** - Many public analytics and data visualization platforms use this same approach (rate limiting without authentication) when serving public datasets.
+
+**If you need user-specific access control**, consider implementing session-based authentication with HttpOnly cookies instead of API keys. This provides real security without exposing credentials in the frontend.
+
 ## Architecture
 
 - **Backend**: FastAPI (Python 3.11) with SQLAlchemy ORM and Pydantic validation
