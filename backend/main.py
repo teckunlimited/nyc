@@ -405,7 +405,7 @@ async def get_daily_aggregates(
         (f" AND trip_date <= :end_date" if end_date else "") +
         (f" AND trip_type = :trip_type" if trip_type else "") +
         """
-        ORDER BY trip_date ASC, trip_type
+        ORDER BY trip_date DESC, trip_type
         LIMIT :limit
     """)
     
