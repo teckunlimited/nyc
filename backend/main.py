@@ -22,12 +22,11 @@ def create_schema_on_startup():
     try:
         logger.info("Creating database schema...")
         
-        # Create all tables from models
-        Base.metadata.create_all(bind=engine)
-        logger.info("✓ Tables created")
-        
-        # Force commit by using begin() context
+        # Create all tables and indexes in a single transaction
         with engine.begin() as conn:
+            # Create all tables from models
+            Base.metadata.create_all(bind=conn)
+            logger.info("✓ Tables created")
             # Create partial indexes for recent trips (performance optimization)
             logger.info("Creating performance indexes...")
             
