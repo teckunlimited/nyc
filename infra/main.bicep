@@ -1,6 +1,6 @@
 targetScope = 'subscription'
 
-param location string = 'eastus'
+param location string = 'westus'
 param environmentName string = 'nyc'
 param resourceGroupName string = '${environmentName}-rg'
 

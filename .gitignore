@@ -40,3 +40,5 @@ Thumbs.db
 *.pem
 *.key
 secrets/
+*CREDENTIALS*.md
+*credentials*.json

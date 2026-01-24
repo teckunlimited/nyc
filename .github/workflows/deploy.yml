@@ -2,13 +2,18 @@ name: Deploy to Azure
 
 on:
   push:
+    branches: [main, develop, staging]
+  pull_request:
     branches: [main]
   workflow_dispatch:
 
 env:
-  AZURE_WEBAPP_BACKEND: nyc-backend
-  AZURE_WEBAPP_FRONTEND: nyc-frontend
-  ACR_NAME: nycacr
+  ACR_NAME: nycacrtakkd33nvzu2k
+  ACR_LOGIN_SERVER: nycacrtakkd33nvzu2k.azurecr.io
+  RESOURCE_GROUP: nyc-app-rg
+  CONTAINER_APP_ENV: nyc-env
+  BACKEND_APP: nyc-backend
+  FRONTEND_APP: nyc-frontend
 
 jobs:
   build-and-deploy:
@@ -18,38 +23,95 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      - name: Set environment suffix
+        id: env
+        run: |
+          if [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
+            echo "suffix=prod" >> $GITHUB_OUTPUT
+            echo "env_name=production" >> $GITHUB_OUTPUT
+          elif [[ "${{ github.ref }}" == "refs/heads/staging" ]]; then
+            echo "suffix=staging" >> $GITHUB_OUTPUT
+            echo "env_name=staging" >> $GITHUB_OUTPUT
+          else
+            echo "suffix=dev" >> $GITHUB_OUTPUT
+            echo "env_name=development" >> $GITHUB_OUTPUT
+          fi
+
       - name: Login to Azure
         uses: azure/login@v1
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
 
       - name: Login to Azure Container Registry
-        uses: azure/docker-login@v1
-        with:
-          login-server: ${{ secrets.ACR_LOGIN_SERVER }}
-          username: ${{ secrets.ACR_USERNAME }}
-          password: ${{ secrets.ACR_PASSWORD }}
+        run: |
+          az acr login --name ${{ env.ACR_NAME }}
 
       - name: Build and push backend image
         run: |
-          docker build -t ${{ secrets.ACR_LOGIN_SERVER }}/backend:${{ github.sha }} -t ${{ secrets.ACR_LOGIN_SERVER }}/backend:latest ./backend
-          docker push ${{ secrets.ACR_LOGIN_SERVER }}/backend:${{ github.sha }}
-          docker push ${{ secrets.ACR_LOGIN_SERVER }}/backend:latest
+          docker build -t ${{ env.ACR_LOGIN_SERVER }}/backend:${{ github.sha }} \
+                       -t ${{ env.ACR_LOGIN_SERVER }}/backend:${{ steps.env.outputs.suffix }} \
+                       -t ${{ env.ACR_LOGIN_SERVER }}/backend:latest \
+                       ./backend
+          docker push ${{ env.ACR_LOGIN_SERVER }}/backend:${{ github.sha }}
+          docker push ${{ env.ACR_LOGIN_SERVER }}/backend:${{ steps.env.outputs.suffix }}
+          docker push ${{ env.ACR_LOGIN_SERVER }}/backend:latest
 
       - name: Build and push frontend image
         run: |
-          docker build -t ${{ secrets.ACR_LOGIN_SERVER }}/frontend:${{ github.sha }} -t ${{ secrets.ACR_LOGIN_SERVER }}/frontend:latest ./frontend
-          docker push ${{ secrets.ACR_LOGIN_SERVER }}/frontend:${{ github.sha }}
-          docker push ${{ secrets.ACR_LOGIN_SERVER }}/frontend:latest
+          docker build -t ${{ env.ACR_LOGIN_SERVER }}/frontend:${{ github.sha }} \
+                       -t ${{ env.ACR_LOGIN_SERVER }}/frontend:${{ steps.env.outputs.suffix }} \
+                       -t ${{ env.ACR_LOGIN_SERVER }}/frontend:latest \
+                       ./frontend
+          docker push ${{ env.ACR_LOGIN_SERVER }}/frontend:${{ github.sha }}
+          docker push ${{ env.ACR_LOGIN_SERVER }}/frontend:${{ steps.env.outputs.suffix }}
+          docker push ${{ env.ACR_LOGIN_SERVER }}/frontend:latest
 
-      - name: Deploy backend to Azure Web App
-        uses: azure/webapps-deploy@v2
-        with:
-          app-name: ${{ env.AZURE_WEBAPP_BACKEND }}
-          images: ${{ secrets.ACR_LOGIN_SERVER }}/backend:${{ github.sha }}
+      - name: Deploy backend to Azure Container Apps
+        if: github.event_name == 'push'
+        run: |
+          az containerapp update \
+            --name ${{ env.BACKEND_APP }} \
+            --resource-group ${{ env.RESOURCE_GROUP }} \
+            --image ${{ env.ACR_LOGIN_SERVER }}/backend:${{ github.sha }} \
+            || az containerapp create \
+              --name ${{ env.BACKEND_APP }} \
+              --resource-group ${{ env.RESOURCE_GROUP }} \
+              --environment ${{ env.CONTAINER_APP_ENV }} \
+              --image ${{ env.ACR_LOGIN_SERVER }}/backend:${{ github.sha }} \
+              --target-port 8000 \
+              --ingress external \
+              --registry-server ${{ env.ACR_LOGIN_SERVER }} \
+              --cpu 0.5 --memory 1.0Gi \
+              --min-replicas 1 --max-replicas 3
 
-      - name: Deploy frontend to Azure Web App
-        uses: azure/webapps-deploy@v2
-        with:
-          app-name: ${{ env.AZURE_WEBAPP_FRONTEND }}
-          images: ${{ secrets.ACR_LOGIN_SERVER }}/frontend:${{ github.sha }}
+      - name: Deploy frontend to Azure Container Apps
+        if: github.event_name == 'push'
+        run: |
+          BACKEND_URL=$(az containerapp show --name ${{ env.BACKEND_APP }} --resource-group ${{ env.RESOURCE_GROUP }} --query properties.configuration.ingress.fqdn -o tsv)
+          az containerapp update \
+            --name ${{ env.FRONTEND_APP }} \
+            --resource-group ${{ env.RESOURCE_GROUP }} \
+            --image ${{ env.ACR_LOGIN_SERVER }}/frontend:${{ github.sha }} \
+            --set-env-vars BACKEND_URL=https://$BACKEND_URL \
+            || az containerapp create \
+              --name ${{ env.FRONTEND_APP }} \
+              --resource-group ${{ env.RESOURCE_GROUP }} \
+              --environment ${{ env.CONTAINER_APP_ENV }} \
+              --image ${{ env.ACR_LOGIN_SERVER }}/frontend:${{ github.sha }} \
+              --target-port 80 \
+              --ingress external \
+              --registry-server ${{ env.ACR_LOGIN_SERVER }} \
+              --cpu 0.5 --memory 1.0Gi \
+              --min-replicas 1 --max-replicas 3 \
+              --env-vars BACKEND_URL=https://$BACKEND_URL
+
+      - name: Display deployment URLs
+        if: github.event_name == 'push'
+        run: |
+          echo "### Deployment URLs" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          BACKEND_URL=$(az containerapp show --name ${{ env.BACKEND_APP }} --resource-group ${{ env.RESOURCE_GROUP }} --query properties.configuration.ingress.fqdn -o tsv)
+          FRONTEND_URL=$(az containerapp show --name ${{ env.FRONTEND_APP }} --resource-group ${{ env.RESOURCE_GROUP }} --query properties.configuration.ingress.fqdn -o tsv)
+          echo "**Backend API:** https://$BACKEND_URL" >> $GITHUB_STEP_SUMMARY
+          echo "**Frontend App:** https://$FRONTEND_URL" >> $GITHUB_STEP_SUMMARY
+          echo "**Environment:** ${{ steps.env.outputs.env_name }}" >> $GITHUB_STEP_SUMMARY

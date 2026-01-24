@@ -1,6 +1,9 @@
 param location string
 param environmentName string
 
+@secure()
+param postgresAdminPassword string = newGuid()
+
 // Container Registry
 resource acr 'Microsoft.ContainerRegistry/registries@2023-01-01-preview' = {
   name: '${environmentName}acr${uniqueString(resourceGroup().id)}'
@@ -24,7 +27,7 @@ resource postgresqlServer 'Microsoft.DBforPostgreSQL/flexibleServers@2022-12-01'
   properties: {
     version: '16'
     administratorLogin: 'adminuser'
-    administratorLoginPassword: 'P@ssw0rd123!' // Change this in production
+    administratorLoginPassword: postgresAdminPassword
     storage: {
       storageSizeGB: 32
     }
@@ -62,8 +65,8 @@ resource appServicePlan 'Microsoft.Web/serverfarms@2022-03-01' = {
   name: '${environmentName}-plan'
   location: location
   sku: {
-    name: 'B1'
-    tier: 'Basic'
+    name: 'F1'
+    tier: 'Free'
   }
   kind: 'linux'
   properties: {
@@ -95,7 +98,7 @@ resource backendAppService 'Microsoft.Web/sites@2022-03-01' = {
         }
         {
           name: 'DATABASE_URL'
-          value: 'postgresql://adminuser:P@ssw0rd123!@${postgresqlServer.properties.fullyQualifiedDomainName}:5432/nycdb'
+          value: 'postgresql://adminuser:${postgresAdminPassword}@${postgresqlServer.properties.fullyQualifiedDomainName}:5432/nycdb'
         }
       ]
     }
