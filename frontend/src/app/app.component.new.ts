@@ -1,4 +1,4 @@
-import { Component, OnInit, ChangeDetectorRef } from '@angular/core';
+import { Component, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { HttpClient, HttpClientModule, HttpHeaders } from '@angular/common/http';
 import { FormsModule } from '@angular/forms';
@@ -70,27 +70,35 @@ interface Trip {
       <section class="kpi-section">
         <div class="kpi-grid">
           <div class="kpi-card">
+            <div class="kpi-icon">📊</div>
             <div class="kpi-content">
               <div class="kpi-label">Total Trips</div>
               <div class="kpi-value">{{ totalTrips | number }}</div>
+              <div class="kpi-change positive">+12.3% vs last period</div>
             </div>
           </div>
           <div class="kpi-card">
+            <div class="kpi-icon">💰</div>
             <div class="kpi-content">
               <div class="kpi-label">Total Revenue</div>
               <div class="kpi-value">{{ totalRevenue | currency }}</div>
+              <div class="kpi-change positive">+8.7% vs last period</div>
             </div>
           </div>
           <div class="kpi-card">
+            <div class="kpi-icon">📏</div>
             <div class="kpi-content">
               <div class="kpi-label">Avg Distance</div>
               <div class="kpi-value">{{ avgDistance | number:'1.2-2' }} mi</div>
+              <div class="kpi-change negative">-2.1% vs last period</div>
             </div>
           </div>
           <div class="kpi-card">
+            <div class="kpi-icon">⏱️</div>
             <div class="kpi-content">
               <div class="kpi-label">Avg Duration</div>
               <div class="kpi-value">{{ avgDuration | number:'1.0-0' }} min</div>
+              <div class="kpi-change positive">+3.4% vs last period</div>
             </div>
           </div>
         </div>
@@ -102,7 +110,6 @@ interface Trip {
           <div class="chart-card">
             <h3>Daily Trips Volume</h3>
             <highcharts-chart
-              *ngIf="tripsChartOptions"
               [Highcharts]="Highcharts"
               [options]="tripsChartOptions"
               style="width: 100%; height: 350px; display: block;"
@@ -111,7 +118,6 @@ interface Trip {
           <div class="chart-card">
             <h3>Revenue Trend</h3>
             <highcharts-chart
-              *ngIf="revenueChartOptions"
               [Highcharts]="Highcharts"
               [options]="revenueChartOptions"
               style="width: 100%; height: 350px; display: block;"
@@ -122,7 +128,6 @@ interface Trip {
           <div class="chart-card">
             <h3>Trip Type Distribution</h3>
             <highcharts-chart
-              *ngIf="pieChartOptions"
               [Highcharts]="Highcharts"
               [options]="pieChartOptions"
               style="width: 100%; height: 350px; display: block;"
@@ -131,7 +136,6 @@ interface Trip {
           <div class="chart-card">
             <h3>Average Distance by Type</h3>
             <highcharts-chart
-              *ngIf="barChartOptions"
               [Highcharts]="Highcharts"
               [options]="barChartOptions"
               style="width: 100%; height: 350px; display: block;"
@@ -156,7 +160,7 @@ interface Trip {
               </tr>
             </thead>
             <tbody>
-              <tr *ngFor="let agg of paginatedAggregates">
+              <tr *ngFor="let agg of aggregates.slice(0, 10)">
                 <td>{{ agg.trip_date | date:'MMM d, y' }}</td>
                 <td><span class="badge" [attr.data-type]="agg.trip_type">{{ agg.trip_type }}</span></td>
                 <td>{{ agg.total_trips | number }}</td>
@@ -166,11 +170,6 @@ interface Trip {
               </tr>
             </tbody>
           </table>
-        </div>
-        <div class="pagination-controls" *ngIf="aggregates.length > 0">
-          <button (click)="prevAggregatesPage()" [disabled]="currentAggregatesPage === 1" class="btn-reset">Previous</button>
-          <span>Page {{ currentAggregatesPage }} of {{ totalAggregatesPages }}</span>
-          <button (click)="nextAggregatesPage()" [disabled]="currentAggregatesPage >= totalAggregatesPages" class="btn-reset">Next</button>
         </div>
         <ng-template #noData>
           <div class="no-data">
@@ -303,6 +302,9 @@ interface Trip {
       border: 1px solid #30363d;
       border-radius: 12px;
       padding: 1.5rem;
+      display: flex;
+      gap: 1rem;
+      align-items: flex-start;
       transition: all 0.3s;
       box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
     }
@@ -313,8 +315,13 @@ interface Trip {
       box-shadow: 0 4px 12px rgba(88, 166, 255, 0.2);
     }
 
+    .kpi-icon {
+      font-size: 2rem;
+      opacity: 0.8;
+    }
+
     .kpi-content {
-      width: 100%;
+      flex: 1;
     }
 
     .kpi-label {
@@ -385,24 +392,6 @@ interface Trip {
       font-size: 1.25rem;
       font-weight: 600;
       margin-bottom: 1rem;
-    }
-
-    .pagination-controls {
-      display: flex;
-      justify-content: center;
-      align-items: center;
-      gap: 1rem;
-      padding: 1rem 0;
-    }
-
-    .pagination-controls button:disabled {
-      opacity: 0.5;
-      cursor: not-allowed;
-    }
-
-    .pagination-controls span {
-      color: #c9d1d9;
-      font-size: 0.875rem;
     }
 
     .table-container {
@@ -514,14 +503,10 @@ export class AppComponent implements OnInit {
   endDate: string = '2021-12-31';
   selectedTripType: string = '';
   
-  // Pagination for trips
+  // Pagination
   currentPage = 1;
   totalPages = 1;
   pageSize = 20;
-  
-  // Pagination for aggregates
-  currentAggregatesPage = 1;
-  aggregatesPageSize = 20;
   
   // Loading state
   loading = false;
@@ -533,16 +518,14 @@ export class AppComponent implements OnInit {
   avgDuration = 0;
 
   // Chart options
-  tripsChartOptions?: Highcharts.Options;
-  revenueChartOptions?: Highcharts.Options;
-  pieChartOptions?: Highcharts.Options;
-  barChartOptions?: Highcharts.Options;
+  tripsChartOptions: Highcharts.Options = {};
+  revenueChartOptions: Highcharts.Options = {};
+  pieChartOptions: Highcharts.Options = {};
+  barChartOptions: Highcharts.Options = {};
 
-  constructor(private http: HttpClient, private cdr: ChangeDetectorRef) {}
+  constructor(private http: HttpClient) {}
 
   ngOnInit() {
-    console.log('Component initialized');
-    console.log('Highcharts available:', typeof Highcharts !== 'undefined');
     this.loadAggregates();
     this.loadTrips();
   }
@@ -559,9 +542,7 @@ export class AppComponent implements OnInit {
     this.http.get<{ data: DailyAggregate[], total: number }>(url)
       .subscribe({
         next: (response) => {
-          console.log('Loaded aggregates:', response.data.length, 'records');
           this.aggregates = response.data;
-          this.currentAggregatesPage = 1;
           this.calculateStatistics();
           this.updateCharts();
           this.loading = false;
@@ -617,13 +598,6 @@ export class AppComponent implements OnInit {
   }
 
   updateCharts() {
-    console.log('updateCharts called with', this.aggregates.length, 'aggregates');
-    
-    if (this.aggregates.length === 0) {
-      console.log('No aggregates to display');
-      return;
-    }
-    
     // Group data by date and trip type
     const dateMap = new Map<string, Map<string, DailyAggregate>>();
     
@@ -635,8 +609,6 @@ export class AppComponent implements OnInit {
     });
 
     const dates = Array.from(dateMap.keys()).sort();
-    console.log('Processing', dates.length, 'dates');
-    
     const tripTypes = ['yellow', 'green', 'fhv', 'fhvhv'];
     const colors = {
       yellow: '#fbbf24',
@@ -655,13 +627,10 @@ export class AppComponent implements OnInit {
       color: colors[type as keyof typeof colors]
     }));
 
-    console.log('Trips series data:', tripsSeries);
-
     this.tripsChartOptions = {
       chart: {
         type: 'line',
         backgroundColor: 'transparent',
-        height: 350,
         style: {
           fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif'
         }
@@ -720,7 +689,6 @@ export class AppComponent implements OnInit {
       chart: {
         type: 'area',
         backgroundColor: 'transparent',
-        height: 350,
         style: {
           fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif'
         }
@@ -754,7 +722,7 @@ export class AppComponent implements OnInit {
       },
       plotOptions: {
         area: {
-          stacking: 'normal' as const,
+          stacking: 'normal',
           marker: {
             enabled: false
           },
@@ -784,7 +752,6 @@ export class AppComponent implements OnInit {
       chart: {
         type: 'pie',
         backgroundColor: 'transparent',
-        height: 350,
         style: {
           fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif'
         }
@@ -834,7 +801,6 @@ export class AppComponent implements OnInit {
       chart: {
         type: 'column',
         backgroundColor: 'transparent',
-        height: 350,
         style: {
           fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif'
         }
@@ -879,40 +845,12 @@ export class AppComponent implements OnInit {
         enabled: false
       }
     };
-    
-    console.log('Charts updated successfully');
-    
-    // Force change detection for charts
-    this.cdr.detectChanges();
-  }
-
-  get paginatedAggregates(): DailyAggregate[] {
-    const start = (this.currentAggregatesPage - 1) * this.aggregatesPageSize;
-    const end = start + this.aggregatesPageSize;
-    return this.aggregates.slice(start, end);
-  }
-
-  get totalAggregatesPages(): number {
-    return Math.ceil(this.aggregates.length / this.aggregatesPageSize);
-  }
-
-  nextAggregatesPage() {
-    if (this.currentAggregatesPage < this.totalAggregatesPages) {
-      this.currentAggregatesPage++;
-    }
-  }
-
-  prevAggregatesPage() {
-    if (this.currentAggregatesPage > 1) {
-      this.currentAggregatesPage--;
-    }
   }
 
   resetFilters() {
     this.startDate = '2021-01-01';
     this.endDate = '2021-12-31';
     this.selectedTripType = '';
-    this.currentAggregatesPage = 1;
     this.loadAggregates();
     this.loadTrips();
   }
