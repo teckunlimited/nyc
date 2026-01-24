@@ -195,8 +195,104 @@ def create_schema_on_startup():
                 CREATE INDEX IF NOT EXISTS idx_summary_locations ON trip_summary_view (pu_location_id, do_location_id)
             """))
             
+            logger.info("✓ Trip summary view created")
+            
+            # Create daily aggregates materialized view
+            logger.info("Creating daily aggregates view...")
+            conn.execute(text("DROP MATERIALIZED VIEW IF EXISTS daily_trip_aggregates CASCADE"))
+            
+            conn.execute(text("""
+                CREATE MATERIALIZED VIEW daily_trip_aggregates AS
+                WITH yellow_daily AS (
+                    SELECT 
+                        DATE(tpep_pickup_datetime) as trip_date,
+                        'yellow' as trip_type,
+                        COUNT(*) as total_trips,
+                        SUM(total_amount) as total_revenue,
+                        AVG(trip_distance) as avg_trip_distance,
+                        AVG(EXTRACT(EPOCH FROM (tpep_dropoff_datetime - tpep_pickup_datetime))/60) as avg_trip_duration,
+                        AVG(fare_amount) as avg_fare_amount,
+                        AVG(tip_amount) as avg_tip_amount,
+                        SUM(passenger_count) as total_passengers,
+                        AVG(passenger_count) as avg_passengers
+                    FROM yellow_trips
+                    WHERE tpep_pickup_datetime IS NOT NULL
+                    GROUP BY DATE(tpep_pickup_datetime)
+                ),
+                green_daily AS (
+                    SELECT 
+                        DATE(lpep_pickup_datetime) as trip_date,
+                        'green' as trip_type,
+                        COUNT(*) as total_trips,
+                        SUM(total_amount) as total_revenue,
+                        AVG(trip_distance) as avg_trip_distance,
+                        AVG(EXTRACT(EPOCH FROM (lpep_dropoff_datetime - lpep_pickup_datetime))/60) as avg_trip_duration,
+                        AVG(fare_amount) as avg_fare_amount,
+                        AVG(tip_amount) as avg_tip_amount,
+                        SUM(passenger_count) as total_passengers,
+                        AVG(passenger_count) as avg_passengers
+                    FROM green_trips
+                    WHERE lpep_pickup_datetime IS NOT NULL
+                    GROUP BY DATE(lpep_pickup_datetime)
+                ),
+                fhv_daily AS (
+                    SELECT 
+                        DATE(pickup_datetime) as trip_date,
+                        'fhv' as trip_type,
+                        COUNT(*) as total_trips,
+                        NULL::numeric as total_revenue,
+                        NULL::numeric as avg_trip_distance,
+                        AVG(EXTRACT(EPOCH FROM (dropoff_datetime - pickup_datetime))/60) as avg_trip_duration,
+                        NULL::numeric as avg_fare_amount,
+                        NULL::numeric as avg_tip_amount,
+                        NULL::numeric as total_passengers,
+                        NULL::numeric as avg_passengers
+                    FROM fhv_trips
+                    WHERE pickup_datetime IS NOT NULL
+                    GROUP BY DATE(pickup_datetime)
+                ),
+                fhvhv_daily AS (
+                    SELECT 
+                        DATE(pickup_datetime) as trip_date,
+                        'fhvhv' as trip_type,
+                        COUNT(*) as total_trips,
+                        SUM(base_passenger_fare + COALESCE(tolls, 0) + COALESCE(bcf, 0) + 
+                            COALESCE(sales_tax, 0) + COALESCE(congestion_surcharge, 0) + 
+                            COALESCE(airport_fee, 0) + COALESCE(tips, 0)) as total_revenue,
+                        AVG(trip_miles) as avg_trip_distance,
+                        AVG(EXTRACT(EPOCH FROM (dropoff_datetime - pickup_datetime))/60) as avg_trip_duration,
+                        AVG(base_passenger_fare) as avg_fare_amount,
+                        AVG(tips) as avg_tip_amount,
+                        NULL::numeric as total_passengers,
+                        NULL::numeric as avg_passengers
+                    FROM fhvhv_trips
+                    WHERE pickup_datetime IS NOT NULL
+                    GROUP BY DATE(pickup_datetime)
+                )
+                SELECT * FROM yellow_daily
+                UNION ALL SELECT * FROM green_daily
+                UNION ALL SELECT * FROM fhv_daily
+                UNION ALL SELECT * FROM fhvhv_daily
+            """))
+            
+            # Create indexes on daily aggregates
+            conn.execute(text("""
+                CREATE UNIQUE INDEX IF NOT EXISTS idx_daily_agg_date_type 
+                ON daily_trip_aggregates (trip_date, trip_type)
+            """))
+            conn.execute(text("""
+                CREATE INDEX IF NOT EXISTS idx_daily_agg_date 
+                ON daily_trip_aggregates (trip_date DESC)
+            """))
+            conn.execute(text("""
+                CREATE INDEX IF NOT EXISTS idx_daily_agg_type 
+                ON daily_trip_aggregates (trip_type)
+            """))
+            
+            logger.info("✓ Daily aggregates view created")
+            
             # Commit happens automatically with engine.begin()
-            logger.info("✓ Materialized view created")
+            logger.info("✓ Materialized views created")
         
         logger.info("✓ Schema initialization complete!")
         
