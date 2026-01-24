@@ -1,11 +1,17 @@
-from fastapi import FastAPI, Depends
+from fastapi import FastAPI, Depends, HTTPException, Query, status
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
-from sqlalchemy import text
+from sqlalchemy import text, func, and_, or_
+from typing import Optional, List
+from datetime import datetime, date, timedelta
 import os
 import logging
 from database import get_db, engine, Base
 from models import YellowTripData, GreenTripData, FHVTripData, FHVHVTripData, TaxiZoneLookup
+from schemas import (
+    TripResponse, DailyAggregateResponse, PaginatedResponse, 
+    DailyAggregateListResponse, HealthResponse
+)
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -253,3 +259,230 @@ async def health(db: Session = Depends(get_db)):
 @app.get("/api/items")
 async def get_items():
     return {"items": []}
+
+
+# ==================== Daily Aggregates Endpoints ====================
+
+@app.get("/api/aggregates/daily", response_model=DailyAggregateListResponse)
+async def get_daily_aggregates(
+    start_date: Optional[date] = Query(None, description="Start date (YYYY-MM-DD)"),
+    end_date: Optional[date] = Query(None, description="End date (YYYY-MM-DD)"),
+    trip_type: Optional[str] = Query(None, description="Filter by trip type: yellow, green, fhv, fhvhv"),
+    limit: int = Query(100, ge=1, le=1000, description="Maximum records to return"),
+    db: Session = Depends(get_db)
+):
+    """
+    Get daily trip aggregates with optional filtering
+    Returns: total trips, revenue, avg distance, avg duration per day
+    """
+    query = text("""
+        SELECT 
+            trip_date, trip_type, total_trips, total_revenue,
+            avg_trip_distance, avg_trip_duration, avg_fare_amount,
+            avg_tip_amount, total_passengers, avg_passengers
+        FROM daily_trip_aggregates
+        WHERE 1=1
+        """ + (f" AND trip_date >= :start_date" if start_date else "") +
+        (f" AND trip_date <= :end_date" if end_date else "") +
+        (f" AND trip_type = :trip_type" if trip_type else "") +
+        """
+        ORDER BY trip_date DESC, trip_type
+        LIMIT :limit
+    """)
+    
+    params = {"limit": limit}
+    if start_date:
+        params["start_date"] = start_date
+    if end_date:
+        params["end_date"] = end_date
+    if trip_type:
+        params["trip_type"] = trip_type
+    
+    result = db.execute(query, params)
+    rows = result.fetchall()
+    
+    aggregates = [
+        DailyAggregateResponse(
+            trip_date=row[0],
+            trip_type=row[1],
+            total_trips=row[2],
+            total_revenue=row[3],
+            avg_trip_distance=row[4],
+            avg_trip_duration=float(row[5]) if row[5] else None,
+            avg_fare_amount=row[6],
+            avg_tip_amount=row[7],
+            total_passengers=row[8],
+            avg_passengers=row[9]
+        )
+        for row in rows
+    ]
+    
+    return DailyAggregateListResponse(total=len(aggregates), data=aggregates)
+
+
+@app.get("/api/aggregates/summary")
+async def get_aggregates_summary(
+    start_date: Optional[date] = Query(None),
+    end_date: Optional[date] = Query(None),
+    db: Session = Depends(get_db)
+):
+    """
+    Get summary statistics across all trip types for a date range
+    """
+    query = text("""
+        SELECT 
+            trip_type,
+            COUNT(*) as days,
+            SUM(total_trips) as total_trips,
+            SUM(total_revenue) as total_revenue,
+            AVG(avg_trip_distance) as avg_distance,
+            AVG(avg_trip_duration) as avg_duration
+        FROM daily_trip_aggregates
+        WHERE 1=1
+        """ + (f" AND trip_date >= :start_date" if start_date else "") +
+        (f" AND trip_date <= :end_date" if end_date else "") +
+        """
+        GROUP BY trip_type
+        ORDER BY trip_type
+    """)
+    
+    params = {}
+    if start_date:
+        params["start_date"] = start_date
+    if end_date:
+        params["end_date"] = end_date
+    
+    result = db.execute(query, params)
+    rows = result.fetchall()
+    
+    summary = [
+        {
+            "trip_type": row[0],
+            "days": row[1],
+            "total_trips": row[2],
+            "total_revenue": float(row[3]) if row[3] else None,
+            "avg_distance": float(row[4]) if row[4] else None,
+            "avg_duration": float(row[5]) if row[5] else None
+        }
+        for row in rows
+    ]
+    
+    return {"summary": summary}
+
+
+# ==================== Trip Data Endpoints ====================
+
+@app.get("/api/trips", response_model=PaginatedResponse)
+async def get_trips(
+    page: int = Query(1, ge=1, description="Page number"),
+    page_size: int = Query(50, ge=1, le=100, description="Items per page"),
+    trip_type: Optional[str] = Query(None, description="Filter by trip type"),
+    start_date: Optional[date] = Query(None, description="Filter trips from this date"),
+    end_date: Optional[date] = Query(None, description="Filter trips until this date"),
+    db: Session = Depends(get_db)
+):
+    """
+    Get paginated trip data from the unified trip_summary_view
+    Includes enriched zone information
+    """
+    offset = (page - 1) * page_size
+    
+    # Build where clause
+    where_conditions = []
+    params = {"limit": page_size, "offset": offset}
+    
+    if trip_type:
+        where_conditions.append("trip_type = :trip_type")
+        params["trip_type"] = trip_type
+    if start_date:
+        where_conditions.append("pickup_datetime >= :start_date")
+        params["start_date"] = datetime.combine(start_date, datetime.min.time())
+    if end_date:
+        where_conditions.append("pickup_datetime <= :end_date")
+        params["end_date"] = datetime.combine(end_date, datetime.max.time())
+    
+    where_clause = " AND " + " AND ".join(where_conditions) if where_conditions else ""
+    
+    # Get total count
+    count_query = text(f"""
+        SELECT COUNT(*) 
+        FROM trip_summary_view 
+        WHERE 1=1 {where_clause}
+    """)
+    total = db.execute(count_query, params).scalar()
+    
+    # Get paginated data
+    data_query = text(f"""
+        SELECT 
+            id, trip_type, pickup_datetime, dropoff_datetime,
+            pu_location_id, pickup_borough, pickup_zone,
+            do_location_id, dropoff_borough, dropoff_zone,
+            trip_distance, fare_amount, tip_amount, total_amount,
+            duration_minutes
+        FROM trip_summary_view
+        WHERE 1=1 {where_clause}
+        ORDER BY pickup_datetime DESC
+        LIMIT :limit OFFSET :offset
+    """)
+    
+    result = db.execute(data_query, params)
+    rows = result.fetchall()
+    
+    trips = [
+        TripResponse(
+            id=row[0],
+            trip_type=row[1],
+            pickup_datetime=row[2],
+            dropoff_datetime=row[3],
+            pu_location_id=row[4],
+            pickup_borough=row[5],
+            pickup_zone=row[6],
+            do_location_id=row[7],
+            dropoff_borough=row[8],
+            dropoff_zone=row[9],
+            trip_distance=row[10],
+            fare_amount=row[11],
+            tip_amount=row[12],
+            total_amount=row[13],
+            duration_minutes=float(row[14]) if row[14] else None
+        )
+        for row in rows
+    ]
+    
+    total_pages = (total + page_size - 1) // page_size
+    
+    return PaginatedResponse(
+        total=total,
+        page=page,
+        page_size=page_size,
+        total_pages=total_pages,
+        data=trips
+    )
+
+
+# ==================== Zone Lookup Endpoint ====================
+
+@app.get("/api/zones")
+async def get_zones(db: Session = Depends(get_db)):
+    """Get all taxi zone lookup data"""
+    query = text("""
+        SELECT location_id, borough, zone, service_zone
+        FROM taxi_zone_lookup
+        ORDER BY borough, zone
+    """)
+    
+    result = db.execute(query)
+    rows = result.fetchall()
+    
+    zones = [
+        {
+            "location_id": row[0],
+            "borough": row[1],
+            "zone": row[2],
+            "service_zone": row[3]
+        }
+        for row in rows
+    ]
+    
+    return {"total": len(zones), "zones": zones}
+
