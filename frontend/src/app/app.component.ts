@@ -671,7 +671,7 @@ export class AppComponent implements OnInit {
     this.loadingCharts = true;
     const apiUrl = environment.apiUrl || 'http://localhost:8000';
     
-    let url = `${apiUrl}/api/aggregates/daily?start_date=${this.startDate}&end_date=${this.endDate}&limit=1000`;
+    let url = `${apiUrl}/api/aggregates/daily?start_date=${this.startDate}&end_date=${this.endDate}&limit=500`;
     if (this.selectedTripType) {
       url += `&trip_type=${this.selectedTripType}`;
     }
