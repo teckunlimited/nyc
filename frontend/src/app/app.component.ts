@@ -451,7 +451,9 @@ export class AppComponent implements OnInit {
   // Pagination
   currentPage = 1;
   pageSize = 20;
+  totalPages = 1;
   revenueChart: Chart | null = null;
+  tripsChart: Chart | null = null;
 
   constructor(private http: HttpClient) {
     // Set default date range (last 30 days)
@@ -496,8 +498,36 @@ export class AppComponent implements OnInit {
     this.loading = true;
     let url = `${this.apiUrl}/api/aggregates/daily?limit=100`;
     
+    if (this.startDate) url += `&start_date=${this.startDate}`;
+    if (this.endDate) url += `&end_date=${this.endDate}`;
+    if (this.selectedTripType) url += `&trip_type=${this.selectedTripType}`;
+
+    const headers = this.token ? new HttpHeaders().set('Authorization', `Bearer ${this.token}`) : undefined;
+
+    this.http.get<{data: DailyAggregate[]}>(url, { headers }).subscribe({
+      next: (response) => {
+        this.aggregates = response.data;
+        this.calculateStats();
+        this.updateCharts();
+        this.loading = false;
+      },
+      error: (error) => {
+        console.error('Error loading aggregates:', error);
+        this.loading = false;
+      }
+    });
+  }
+
+  loadTrips() {
+    let url = `${this.apiUrl}/api/trips?page=${this.currentPage}&page_size=${this.pageSize}`;
     
-    this.http.get<{total: number, page: number, page_size: number, total_pages: number, data: Trip[]}>(url).subscribe({
+    if (this.startDate) url += `&start_date=${this.startDate}`;
+    if (this.endDate) url += `&end_date=${this.endDate}`;
+    if (this.selectedTripType) url += `&trip_type=${this.selectedTripType}`;
+
+    const headers = this.token ? new HttpHeaders().set('Authorization', `Bearer ${this.token}`) : undefined;
+    
+    this.http.get<{total: number, page: number, page_size: number, total_pages: number, data: Trip[]}>(url, { headers }).subscribe({
       next: (response) => {
         this.trips = response.data;
         this.totalPages = response.total_pages;
@@ -671,108 +701,5 @@ export class AppComponent implements OnInit {
       this.currentPage--;
       this.loadTrips();
     }
-  }
-}
-
-    .container {
-      max-width: 1200px;
-      margin: 0 auto;
-      padding: 20px;
-    }
-
-    header {
-      text-align: center;
-      margin-bottom: 40px;
-    }
-
-    h1 {
-      color: #0066cc;
-      margin-bottom: 10px;
-    }
-
-    h2 {
-      color: #333;
-      margin-bottom: 15px;
-    }
-
-    .api-status {
-      margin-bottom: 30px;
-    }
-
-    .status-card {
-      background: white;
-      padding: 20px;
-      border-radius: 8px;
-      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-    }
-
-    .status-card.connected {
-      border-left: 4px solid #28a745;
-    }
-
-    .status-card.disconnected {
-      border-left: 4px solid #dc3545;
-    }
-
-    .status-card p {
-      margin: 10px 0;
-    }
-
-    .items {
-      background: white;
-      padding: 20px;
-      border-radius: 8px;
-      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-    }
-
-    ul {
-      list-style: none;
-    }
-
-    li {
-      padding: 10px;
-      border-bottom: 1px solid #eee;
-    }
-
-    li:last-child {
-      border-bottom: none;
-    }
-  `]
-})
-export class AppComponent implements OnInit {
-  apiUrl = environment.apiUrl;
-  apiStatus = 'Checking...';
-  apiConnected = false;
-  items: any[] = [];
-
-  constructor(private http: HttpClient) {}
-
-  ngOnInit() {
-    this.checkApi();
-    this.loadItems();
-  }
-
-  checkApi() {
-    this.http.get(`${this.apiUrl}/health`).subscribe({
-      next: (response: any) => {
-        this.apiStatus = response.status || 'Connected';
-        this.apiConnected = true;
-      },
-      error: (error) => {
-        this.apiStatus = 'Disconnected - ' + error.message;
-        this.apiConnected = false;
-      }
-    });
-  }
-
-  loadItems() {
-    this.http.get<any>(`${this.apiUrl}/api/items`).subscribe({
-      next: (response) => {
-        this.items = response.items || [];
-      },
-      error: (error) => {
-        console.error('Error loading items:', error);
-      }
-    });
   }
 }
