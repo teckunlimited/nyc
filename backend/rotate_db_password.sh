@@ -68,6 +68,25 @@ az keyvault secret set \
   --value "$NEW_DATABASE_URL" \
   --output none
 
+# Update storage connection string in Key Vault (refresh from current storage account)
+echo "Refreshing storage connection string in Key Vault..."
+STORAGE_ACCOUNT=$(az storage account list --resource-group $RESOURCE_GROUP --query "[0].name" -o tsv)
+if [ -n "$STORAGE_ACCOUNT" ]; then
+  STORAGE_CONNECTION=$(az storage account show-connection-string \
+    --name $STORAGE_ACCOUNT \
+    --resource-group $RESOURCE_GROUP \
+    --query connectionString -o tsv)
+  
+  az keyvault secret set \
+    --vault-name $KEY_VAULT_NAME \
+    --name storage-connection \
+    --value "$STORAGE_CONNECTION" \
+    --output none
+  echo "Storage connection string updated in Key Vault"
+else
+  echo "WARNING: No storage account found in $RESOURCE_GROUP"
+fi
+
 echo ""
 echo "Password rotated successfully!"
 echo ""
@@ -105,15 +124,21 @@ if [ -z "$JOBS" ]; then
     echo "  No Container App Jobs found in $RESOURCE_GROUP"
 else
     for JOB in $JOBS; do
-        echo "  Updating $JOB..."
-        # Jobs use secrets, need to update the secret value
-        az containerapp job update \
-          --name $JOB \
-          --resource-group $RESOURCE_GROUP \
-          --set-secrets database-url="$NEW_DATABASE_URL" \
-          --output none 2>/dev/null || echo "      Skipped $JOB (may not use database-url secret)"
+        echo "  Updating $JOB secrets..."
+        # Jobs use secrets, need to update both database and storage secrets
+        UPDATE_CMD="az containerapp job update --name $JOB --resource-group $RESOURCE_GROUP"
+        
+        # Update database secret
+        $UPDATE_CMD --replace-secrets "database-url=$NEW_DATABASE_URL" --output none 2>/dev/null || echo "      Database secret update skipped"
+        
+        # Update storage secret if we have a storage account
+        if [ -n "$STORAGE_ACCOUNT" ] && [ -n "$STORAGE_CONNECTION" ]; then
+          $UPDATE_CMD --replace-secrets "storage-connection=$STORAGE_CONNECTION" --output none 2>/dev/null || echo "      Storage secret update skipped"
+        fi
+        
+        echo "    $JOB secrets updated"
     done
-    echo "   Jobs updated"
+    echo "  All jobs updated"
 fi
 
 echo ""

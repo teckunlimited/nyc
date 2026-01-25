@@ -150,6 +150,54 @@ jobs:
           echo "::add-mask::$DB_PASSWORD"
           echo "password=$DB_PASSWORD" >> $GITHUB_OUTPUT
 
+      - name: Create Storage Account and store connection string
+        id: storage
+        run: |
+          # Generate deterministic storage account name
+          STORAGE_NAME="nyc${{ steps.env.outputs.suffix }}data$(echo ${{ steps.env.outputs.resource_group }} | md5sum | cut -c1-8)"
+          
+          echo "Storage account name: $STORAGE_NAME"
+          
+          # Create storage account if it doesn't exist
+          if ! az storage account show --name $STORAGE_NAME --resource-group ${{ steps.env.outputs.resource_group }} 2>/dev/null; then
+            echo "Creating storage account..."
+            az storage account create \
+              --name $STORAGE_NAME \
+              --resource-group ${{ steps.env.outputs.resource_group }} \
+              --location ${{ env.LOCATION }} \
+              --sku Standard_LRS \
+              --kind StorageV2 \
+              --access-tier Hot \
+              --min-tls-version TLS1_2 \
+              --allow-blob-public-access false
+            
+            echo "Creating blob container tlc-data..."
+            az storage container create \
+              --name tlc-data \
+              --account-name $STORAGE_NAME \
+              --auth-mode login
+          else
+            echo "Storage account already exists"
+          fi
+          
+          # Get storage connection string
+          STORAGE_CONNECTION=$(az storage account show-connection-string \
+            --name $STORAGE_NAME \
+            --resource-group ${{ steps.env.outputs.resource_group }} \
+            --query connectionString -o tsv)
+          
+          echo "::add-mask::$STORAGE_CONNECTION"
+          
+          # Store in Key Vault
+          az keyvault secret set \
+            --vault-name ${{ steps.keyvault.outputs.name }} \
+            --name storage-connection \
+            --value "$STORAGE_CONNECTION" \
+            --output none
+          
+          echo "storage_account=$STORAGE_NAME" >> $GITHUB_OUTPUT
+          echo "connection_string=$STORAGE_CONNECTION" >> $GITHUB_OUTPUT
+
       - name: Create PostgreSQL Database
         id: postgres
         run: |
@@ -197,7 +245,6 @@ jobs:
           echo "::add-mask::$CONNECTION_STRING"
           echo "connection_string=$CONNECTION_STRING" >> $GITHUB_OUTPUT
           echo "Database configuration complete"
-
       - name: Login to Azure Container Registry
         run: |
           az acr login --name ${{ env.ACR_NAME }} --resource-group ${{ env.ACR_RESOURCE_GROUP }}
@@ -267,6 +314,27 @@ jobs:
               --cpu 0.5 --memory 1.0Gi \
               --min-replicas 1 --max-replicas 3 \
               --env-vars DATABASE_URL="${{ steps.postgres.outputs.connection_string }}" ENVIRONMENT=${{ steps.env.outputs.env_name }}
+
+      - name: Update data loader job with new password
+        if: github.event_name == 'push'
+        run: |
+          # Update data loader job with all secrets from Key Vault
+          echo "Updating data loader job with latest secrets..."
+          echo "::add-mask::${{ steps.postgres.outputs.connection_string }}"
+          echo "::add-mask::${{ steps.storage.outputs.connection_string }}"
+          
+          az containerapp job update \
+            --name ${{ steps.env.outputs.suffix }}-data-loader-job \
+            --resource-group ${{ steps.env.outputs.resource_group }} \
+            --image ${{ env.ACR_LOGIN_SERVER }}/nyc-data-loader:${{ github.sha }} \
+            --set-env-vars "DATABASE_URL=secretref:database-url" "AZURE_STORAGE_CONNECTION_STRING=secretref:storage-connection" \
+            --replace-secrets \
+              "database-url=${{ steps.postgres.outputs.connection_string }}" \
+              "storage-connection=${{ steps.storage.outputs.connection_string }}" \
+            --registry-server ${{ env.ACR_LOGIN_SERVER }} \
+            --registry-username ${{ steps.acr.outputs.username }} \
+            --registry-password ${{ steps.acr.outputs.password }} \
+            2>/dev/null || echo "Data loader job not found or already up to date"
 
       - name: Get backend URL and update frontend configuration
         if: github.event_name == 'push'
