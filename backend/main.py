@@ -42,10 +42,54 @@ def create_schema_on_startup():
             Base.metadata.create_all(bind=conn)
             logger.info("✓ Tables created")
             # Skip index creation temporarily to test database connection
-            logger.info("Skipping index creation for startup testing")
-            logger.info("✓ Basic indexes skipped")
+            # Check and create indexes only if they don't exist (fast skip for dev, creates for staging)
+            logger.info("Checking existing indexes...")
             
-            logger.info("✓ Performance indexes created")
+            # Check if main performance indexes exist
+            indexes_exist = conn.execute(text("""
+                SELECT EXISTS (
+                    SELECT 1 FROM pg_indexes 
+                    WHERE tablename = 'yellow_trips' AND indexname = 'idx_yellow_pickup_date'
+                )
+            """)).scalar()
+            
+            if not indexes_exist:
+                logger.info("Creating performance indexes (tables appear to be new)...")
+                
+                conn.execute(text("""
+                    CREATE INDEX idx_yellow_pickup_date 
+                    ON yellow_trips (tpep_pickup_datetime DESC)
+                """))
+                
+                conn.execute(text("""
+                    CREATE INDEX idx_green_pickup_date 
+                    ON green_trips (lpep_pickup_datetime DESC)
+                """))
+                
+                conn.execute(text("""
+                    CREATE INDEX idx_fhv_pickup_date 
+                    ON fhv_trips (pickup_datetime DESC)
+                """))
+                
+                conn.execute(text("""
+                    CREATE INDEX idx_fhvhv_pickup_date 
+                    ON fhvhv_trips (pickup_datetime DESC)
+                """))
+                
+                # Create location indexes
+                conn.execute(text("""
+                    CREATE INDEX idx_yellow_locations 
+                    ON yellow_trips (pu_location_id, do_location_id)
+                """))
+                
+                conn.execute(text("""
+                    CREATE INDEX idx_green_locations 
+                    ON green_trips (pu_location_id, do_location_id)
+                """))
+                
+                logger.info("✓ Performance indexes created")
+            else:
+                logger.info("✓ Performance indexes already exist, skipping creation")
             
             # Create materialized views only if they don't exist
             logger.info("Checking for existing materialized views...")
@@ -332,28 +376,29 @@ async def root(request: Request):
 @limiter.limit("200/minute")
 async def health(request: Request, db: Session = Depends(get_db)):
     try:
-        # Test database connection
+        # Test database connection with simple query
         db.execute(text("SELECT 1"))
         
-        # Get table counts
-        stats = {}
+        # Quick table existence check (instead of slow COUNT(*))
+        tables_exist = {}
         for table in ['yellow_trips', 'green_trips', 'fhv_trips', 'fhvhv_trips']:
             try:
-                result = db.execute(text(f"SELECT COUNT(*) FROM {table}"))
-                stats[table] = result.scalar()
+                # Fast existence check without counting rows
+                db.execute(text(f"SELECT 1 FROM {table} LIMIT 1"))
+                tables_exist[table] = "exists"
             except:
-                stats[table] = 0
+                tables_exist[table] = "missing"
         
         db_status = "connected"
     except Exception as e:
         db_status = f"error: {str(e)}"
-        stats = {}
+        tables_exist = {}
     
     return {
         "status": "healthy",
         "database": db_status,
         "environment": os.getenv("ENVIRONMENT", "local"),
-        "trip_counts": stats
+        "tables": tables_exist
     }
 
 @app.get("/api/items")
