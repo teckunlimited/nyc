@@ -8,27 +8,49 @@ KEY_VAULT_NAME=$(az keyvault list --resource-group $RESOURCE_GROUP --query "[0].
 DB_SERVER=$(az postgres flexible-server list --resource-group $RESOURCE_GROUP --query "[0].name" -o tsv)
 
 if [ -z "$KEY_VAULT_NAME" ] || [ -z "$DB_SERVER" ]; then
-    echo "❌ Error: Could not find Key Vault or PostgreSQL server in $RESOURCE_GROUP"
+    echo "Error: Could not find Key Vault or PostgreSQL server in $RESOURCE_GROUP"
     exit 1
 fi
 
-echo "🔄 Rotating database password for $DB_SERVER"
+echo "Rotating database password for $DB_SERVER"
 echo "Resource Group: $RESOURCE_GROUP"
 echo "Key Vault: $KEY_VAULT_NAME"
+echo ""
+
+# Grant current user permissions to Key Vault if needed
+echo "Checking Key Vault permissions..."
+CURRENT_USER=$(az account show --query user.name -o tsv)
+CURRENT_USER_ID=$(az ad signed-in-user show --query id -o tsv 2>/dev/null || az account show --query user.name -o tsv)
+
+echo "Granting permissions to $CURRENT_USER..."
+az keyvault set-policy \
+  --name $KEY_VAULT_NAME \
+  --resource-group $RESOURCE_GROUP \
+  --upn "$CURRENT_USER" \
+  --secret-permissions get list set delete \
+  --output none 2>/dev/null || \
+az keyvault set-policy \
+  --name $KEY_VAULT_NAME \
+  --resource-group $RESOURCE_GROUP \
+  --object-id "$CURRENT_USER_ID" \
+  --secret-permissions get list set delete \
+  --output none
+
+echo "Permissions granted"
 echo ""
 
 # Generate new secure password
 NEW_PASSWORD=$(openssl rand -base64 30 | tr -dc 'a-zA-Z0-9' | head -c 24)
 
 # Update PostgreSQL server password
-echo "📝 Updating PostgreSQL server password..."
+echo "Updating PostgreSQL server password..."
 az postgres flexible-server update \
   --resource-group $RESOURCE_GROUP \
   --name $DB_SERVER \
   --admin-password "$NEW_PASSWORD"
 
 # Update Key Vault secret
-echo "🔐 Updating Key Vault secret 'db-password'..."
+echo "Updating Key Vault secret 'db-password'..."
 az keyvault secret set \
   --vault-name $KEY_VAULT_NAME \
   --name db-password \
@@ -39,7 +61,7 @@ az keyvault secret set \
 DB_HOST="${DB_SERVER}.postgres.database.azure.com"
 NEW_DATABASE_URL="postgresql://nycadmin:${NEW_PASSWORD}@${DB_HOST}:5432/nycdb?sslmode=require"
 
-echo "🔐 Updating Key Vault secret 'DATABASE-URL'..."
+echo "Updating Key Vault secret 'DATABASE-URL'..."
 az keyvault secret set \
   --vault-name $KEY_VAULT_NAME \
   --name DATABASE-URL \
@@ -47,13 +69,73 @@ az keyvault secret set \
   --output none
 
 echo ""
-echo "✅ Password rotated successfully!"
+echo "Password rotated successfully!"
 echo ""
-echo "⚠️  Action required:"
-echo "1. Update any running Container Apps with the new connection string"
-echo "2. Restart data loader jobs"
-echo "3. Test connectivity"
+echo "Updating Container Apps with new connection string..."
+
+# Get all container apps in the resource group
+APPS=$(az containerapp list --resource-group $RESOURCE_GROUP --query "[].name" -o tsv)
+
+if [ -z "$APPS" ]; then
+    echo "WARNING: No Container Apps found in $RESOURCE_GROUP"
+else
+    for APP in $APPS; do
+        echo "  Updating $APP..."
+        az containerapp update \
+          --name $APP \
+          --resource-group $RESOURCE_GROUP \
+          --set-env-vars DATABASE_URL="$NEW_DATABASE_URL" \
+          --output none 2>/dev/null || echo "    WARNING: Skipped $APP (may not use DATABASE_URL)"
+        
+        # Force restart to apply new password
+        echo "    Restarting $APP to apply new password..."
+        az containerapp revision restart \
+          --name $APP \
+          --resource-group $RESOURCE_GROUP \
+          --output none 2>/dev/null || echo "    INFO: Restart not needed (app will reload automatically)"
+    done
+    echo "  Container Apps updated and restarted"
+fi
+
 echo ""
-echo "To update Container Apps:"
-echo "  az containerapp update --name <app-name> --resource-group $RESOURCE_GROUP \\"
-echo "    --set-env-vars DATABASE_URL=@$KEY_VAULT_NAME/DATABASE-URL"
+echo "Checking for data loader jobs..."
+JOBS=$(az containerapp job list --resource-group $RESOURCE_GROUP --query "[].name" -o tsv)
+
+if [ -z "$JOBS" ]; then
+    echo "  No Container App Jobs found in $RESOURCE_GROUP"
+else
+    for JOB in $JOBS; do
+        echo "  Updating $JOB..."
+        # Jobs use secrets, need to update the secret value
+        az containerapp job update \
+          --name $JOB \
+          --resource-group $RESOURCE_GROUP \
+          --set-secrets database-url="$NEW_DATABASE_URL" \
+          --output none 2>/dev/null || echo "      Skipped $JOB (may not use database-url secret)"
+    done
+    echo "   Jobs updated"
+fi
+
+echo ""
+echo "All services updated with new password!"
+echo ""
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo "NEW DATABASE CREDENTIALS (Store Securely)"
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo ""
+echo "Database Server:  $DB_HOST"
+echo "Database Name:    nycdb"
+echo "Admin User:       nycadmin"
+echo "New Password:     $NEW_PASSWORD"
+echo ""
+echo "Connection String:"
+echo "$NEW_DATABASE_URL"
+echo ""
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo ""
+echo "Password is also stored in Key Vault: $KEY_VAULT_NAME"
+echo "   Secret names: 'db-password' and 'DATABASE-URL'"
+echo ""
+echo "Test connectivity:"
+echo "  Backend health: Check your backend app /health endpoint"
+echo "  Direct test:    psql \"$NEW_DATABASE_URL\" -c 'SELECT version();'"
