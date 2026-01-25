@@ -25,8 +25,6 @@ if [ -z "$STORAGE_ACCOUNT" ]; then
     exit 1
 fi
 
-DATABASE_URL="postgresql://nycadmin:Wg8zL7tt4lN05szaXGTD@nyc-dev-dbfaff08.postgres.database.azure.com:5432/nycdb?sslmode=require"
-
 echo ""
 echo "Configuration:"
 echo "  Resource Group: $RESOURCE_GROUP"
@@ -55,7 +53,18 @@ STORAGE_CONNECTION_STRING=$(az storage account show-connection-string \
   --query connectionString -o tsv)
 
 echo ""
-echo "🏗️  Step 5: Creating Container App Job..."
+echo "🔐 Step 5: Getting Database URL from Key Vault..."
+KEY_VAULT_NAME=$(az keyvault list --resource-group $RESOURCE_GROUP --query "[0].name" -o tsv)
+DATABASE_URL=$(az keyvault secret show --vault-name $KEY_VAULT_NAME --name DATABASE-URL --query value -o tsv)
+
+if [ -z "$DATABASE_URL" ]; then
+    echo "❌ Error: DATABASE_URL not found in Key Vault $KEY_VAULT_NAME"
+    echo "Please ensure DATABASE-URL secret exists in the Key Vault"
+    exit 1
+fi
+
+echo ""
+echo "🏗️  Step 6: Creating Container App Job..."
 
 # Check if Container Environment exists
 if ! az containerapp env show --name $CONTAINER_ENV --resource-group $RESOURCE_GROUP &>/dev/null; then
