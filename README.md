@@ -48,26 +48,41 @@ This platform uses **rate limiting** and **CORS protection** for API security ra
 
 ```
 nyc/
-├── backend/               # FastAPI backend
-│   ├── main.py           # API endpoints and application
-│   ├── models.py         # SQLAlchemy ORM models
-│   ├── schemas.py        # Pydantic validation schemas
-│   ├── database.py       # Database connection
-│   ├── create_schema.py  # Schema and view creation
-│   ├── load_data.py      # Standard data loader
-│   ├── load_data_fast.py # Fast COPY-based loader (3-5x faster)
-│   ├── load_zone_lookup.py # Zone lookup data loader
-│   └── requirements.txt  # Python dependencies
-├── frontend/             # Angular frontend
+├── backend/                      # FastAPI backend
+│   ├── main.py                   # API endpoints and application
+│   ├── models.py                 # SQLAlchemy ORM models
+│   ├── database.py               # Database connection
+│   ├── init-local-db.sql         # Auto-executed schema initialization
+│   ├── create_schema.py          # Schema creation (Azure deployment)
+│   ├── load_data.py              # Data loader (Cloud version)
+│   ├── start-backend.sh          # Auto-setup script (venv, deps, server)
+│   └── requirements.txt          # Python dependencies
+├── frontend/                     # Angular standalone frontend
 │   ├── src/
 │   │   └── app/
-│   │       └── app.component.ts  # Main dashboard component
-│   ├── package.json      # Node dependencies
-│   └── angular.json      # Angular configuration
-├── infra/               # Azure Bicep infrastructure
-│   ├── main.bicep       # Main infrastructure template
-│   ├── resources.bicep  # Resource definitions
-│   └── main.bicepparam  # Parameters
+│   │       └── app.component.ts  # Main dashboard component (Chart.js)
+│   ├── package.json              # Node dependencies
+│   └── angular.json              # Angular configuration
+├── infra/                        # Azure Bicep infrastructure
+│   ├── main.bicep                # Main infrastructure template
+│   ├── resources.bicep           # Resource definitions (Storage + Job)
+│   └── main.bicepparam           # Parameters
+├── tlc/                          # Local TLC trip data files
+│   ├── taxi_zone_lookup.csv      # 265 NYC taxi zones
+│   ├── yellow_tripdata_*.parquet # Yellow taxi trip records (2021-2025)
+│   ├── green_tripdata_*.parquet  # Green taxi trip records (2021-2025)
+│   ├── fhv_tripdata_*.parquet    # FHV trip records (2021-2025)
+│   └── fhvhv_tripdata_*.parquet  # FHVHV trip records (2021-2025)
+├── setup-local-dev.sh            # One-command local environment setup
+├── package.json                  # Root npm scripts (orchestration)
+└── docker-compose.yml            # PostgreSQL service definition
+```
+
+**Key Files:**
+- [backend/init-local-db.sql](backend/init-local-db.sql) - Auto-executed by PostgreSQL on container start (tables, indexes, materialized views)
+- [setup-local-dev.sh](setup-local-dev.sh) - Orchestrates database start, data loading, and view refresh
+- [backend/start-backend.sh](backend/start-backend.sh) - Auto-creates venv, installs deps, starts FastAPI
+- [package.json](package.json) - Root-level npm scripts for one-command workflow
 ├── tlc/                 # TLC data storage
 │   ├── download_tlc_data.sh  # Data download script
 │   └── *.parquet        # Trip data files (235 files)
@@ -93,39 +108,153 @@ nyc/
 
 ## Local Development
 
-### Prerequisites
+### Quick Start (One Command)
 
-- Docker and Docker Compose (optional)
-- Node.js 20+
-- Python 3.11+
-- PostgreSQL 16 (or use Azure PostgreSQL)
-
-### Running with Docker Compose
+Start everything with a single command:
 
 ```bash
-docker-compose up -d
+# Install dependencies (first time only)
+npm install
+
+# One-command startup (recommended)
+npm start
 ```
 
-Services will be available at:
-- **Frontend**: http://localhost
-- **Backend API**: http://localhost:8000
-- **API Docs**: http://localhost:8000/docs (Interactive Swagger UI)
-- **PostgreSQL**: localhost:5432
+This single command will:
+1. ✅ Start PostgreSQL in Docker (with clean slate)
+2. ✅ Auto-initialize database schema on container start
+3. ✅ Load taxi zone lookup data (265 zones)
+4. ✅ Load 12,000 sample trip records from local files
+5. ✅ Refresh materialized views for performance
+6. ✅ Start backend API on http://localhost:8000
+7. ✅ Start frontend on http://localhost:4200
 
-### Backend Development
+**What's happening behind the scenes:**
+- `docker-compose down -v && docker-compose up -d` - Clean database start
+- PostgreSQL executes [backend/init-local-db.sql](backend/init-local-db.sql) automatically on container initialization
+- [setup-local-dev.sh](setup-local-dev.sh) loads sample data from local `/tlc` folder (no downloads needed)
+- Materialized views (`trip_summary_view`, `daily_trip_aggregates`) are refreshed after data load
+- Backend auto-creates Python venv, installs dependencies, and starts FastAPI server
+- Frontend builds and serves Angular application with hot reload
+
+**Sample Data Included:**
+- 3,000 Yellow Taxi trips (Jan-Mar 2025, 1000/month)
+- 3,000 Green Taxi trips (Jan-Mar 2025, 1000/month)
+- 3,000 FHV trips (Jan-Mar 2025, 1000/month)
+- 3,000 FHVHV trips (Jan-Mar 2025, 1000/month)
+- 265 Taxi Zone reference data
+- **Total: 12,000 trip records**
+
+**Other useful commands:**
+```bash
+# Start services without database reset (faster)
+npm run dev
+
+# Individual services
+npm run backend      # Start backend only
+npm run frontend     # Start frontend only
+
+# Database management
+docker-compose down          # Stop database
+docker-compose down -v       # Stop and delete database volume
+docker-compose up -d         # Start database only
+```
+
+**Local Services:**
+- Frontend: http://localhost:4200
+- Backend API: http://localhost:8000
+- API Docs: http://localhost:8000/docs
+- Database: postgresql://postgres:postgres@localhost:5432/nycdb
+
+### Architecture Notes
+
+**Materialized Views for Performance:**
+The application uses PostgreSQL materialized views to pre-compute expensive queries:
+- `trip_summary_view` - Unified view of all trip types with zone information
+- `daily_trip_aggregates` - Pre-computed daily statistics (trip counts, fares, distances)
+
+These views are created with `WITH NO DATA` during schema initialization and refreshed after loading sample data. This pattern ensures fast API response times for dashboard queries.
+
+**Automated Schema Management:**
+The database schema is automatically initialized when PostgreSQL starts via [backend/init-local-db.sql](backend/init-local-db.sql). This includes:
+- 6 tables: yellow_trips, green_trips, fhv_trips, fhvhv_trips, taxi_zone_lookup, loaded_files
+- Indexes for query optimization
+- Triggers for data validation
+- Materialized views for performance
+- Support for 2025 data format (includes `cbd_congestion_fee` column)
+
+### Prerequisites
+
+- **Docker Desktop** (for local PostgreSQL container)
+- **Node.js 20+** (for npm scripts and frontend)
+- **Python 3.11+** (auto-managed by backend startup script)
+
+### Troubleshooting
+
+**Database connection errors:**
+```bash
+# Check if PostgreSQL is running
+docker ps
+
+# View database logs
+docker-compose logs db
+
+# Restart database with clean slate
+docker-compose down -v && docker-compose up -d
+```
+
+**Backend startup errors:**
+```bash
+# View backend logs
+cd backend
+cat setup.log
+
+# Manually start backend to see detailed errors
+./start-backend.sh
+```
+
+**Port already in use:**
+```bash
+# Find process using port 8000 or 4200
+lsof -ti:8000 | xargs kill -9
+lsof -ti:4200 | xargs kill -9
+
+# Then restart
+npm start
+```
+
+**Materialized views not refreshing:**
+```bash
+# Connect to database
+docker exec -it nyc-db-1 psql -U postgres -d nycdb
+
+# Refresh views manually
+REFRESH MATERIALIZED VIEW trip_summary_view;
+REFRESH MATERIALIZED VIEW daily_trip_aggregates;
+```
+
+### Manual Backend Development
+
+If you prefer to run backend manually instead of using `npm start`:
 
 ```bash
 cd backend
 
-# Create virtual environment
+# Create virtual environment (first time)
+python3 -m venv venv
+source venv/bin/activate
 python -m venv venv
 source venv/bin/activate  # Windows: venv\Scripts\activate
 
 # Install dependencies
 pip install -r requirements.txt
 
-# Set database connection
-export DATABASE_URL="postgresql://user:password@host:5432/nycdb"
+# Start local database (if not already running)
+docker-compose up -d db
+
+# Database will auto-connect to local: postgresql://postgres:postgres@localhost:5432/nycdb
+# Or set custom connection:
+# export DATABASE_URL="postgresql://user:password@host:5432/nycdb"
 
 # Initialize schema
 python create_schema.py
@@ -139,7 +268,7 @@ uvicorn main:app --reload --host 0.0.0.0 --port 8000
 - Interactive docs: http://localhost:8000/docs
 - Health check: http://localhost:8000/health
 
-### Frontend Development
+### Manual Frontend Development
 
 ```bash
 cd frontend

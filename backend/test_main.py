@@ -1,6 +1,7 @@
 """
 Unit tests for NYC TLC Trip Data API
 Tests all endpoints with mocked database connections
+Updated: January 2026 - Testing materialized views, pagination, and all API endpoints
 """
 
 import pytest
@@ -18,7 +19,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from main import app, get_db
 from database import Base
-from models import YellowTripData, GreenTripData, TaxiZoneLookup
+from models import YellowTripData, GreenTripData, TaxiZoneLookup, FHVTripData, FHVHVTripData
 
 
 # ==================== Test Database Setup ====================
@@ -171,7 +172,7 @@ def sample_zones(test_db):
 
 # ==================== Health Check Tests ====================
 
-def test_health_check(client):
+def test_health_check(client, test_db):
     """Test the health check endpoint"""
     response = client.get("/health")
     assert response.status_code == 200
@@ -179,6 +180,7 @@ def test_health_check(client):
     assert data["status"] == "healthy"
     assert "database" in data
     assert "environment" in data
+    # Database field contains "connected" string, not detailed table counts in test environment
 
 
 def test_root_endpoint(client):
@@ -458,5 +460,48 @@ def test_full_workflow(client, sample_aggregates, sample_trips, sample_zones):
     ])
 
 
+def test_materialized_views_exist(client, test_db):
+    """Test that materialized views are created"""
+    # Check trip_summary_view exists
+    result = test_db.execute(text(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='trip_summary_view'"
+    ))
+    assert result.fetchone() is not None
+    
+    # Check daily_trip_aggregates exists
+    result = test_db.execute(text(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='daily_trip_aggregates'"
+    ))
+    assert result.fetchone() is not None
+
+
+def test_date_filtering_edge_cases(client, sample_aggregates):
+    """Test edge cases in date filtering"""
+    # Future date - should return empty
+    response = client.get("/api/aggregates/daily?start_date=2030-01-01")
+    assert response.status_code == 200
+    assert response.json()["total"] == 0
+    
+    # Past date - should return empty
+    response = client.get("/api/aggregates/daily?start_date=2000-01-01&end_date=2000-12-31")
+    assert response.status_code == 200
+    assert response.json()["total"] == 0
+
+
+def test_all_trip_types(client, sample_aggregates):
+    """Test filtering for all trip types"""
+    trip_types = ['yellow', 'green', 'fhv', 'fhvhv']
+    
+    for trip_type in trip_types:
+        response = client.get(f"/api/aggregates/daily?trip_type={trip_type}")
+        assert response.status_code == 200
+        data = response.json()
+        # Should only return the specified trip type
+        if data["data"]:
+            assert all(item["trip_type"] == trip_type for item in data["data"])
+
+
+if __name__ == "__main__":
+    pytest.main([__file__, "-v", "--tb=short"])
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

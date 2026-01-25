@@ -1,0 +1,36 @@
+{
+  "name": "nyc-tlc-analytics",
+  "version": "1.0.0",
+  "description": "NYC TLC Trip Data Analytics Platform",
+  "scripts": {
+    "start": "npm run setup:dev && npm run dev",
+    "dev": "concurrently \"npm run backend\" \"npm run frontend\" --names \"backend,frontend\" --prefix-colors \"blue,magenta\"",
+    "setup:dev": "./setup-local-dev.sh",
+    "backend": "cd backend && ./start-backend.sh",
+    "frontend": "cd frontend && npm start",
+    "db:start": "docker-compose up -d db",
+    "db:stop": "docker-compose down",
+    "db:reset": "docker-compose down -v && ./setup-local-dev.sh",
+    "test": "npm run test:backend && npm run test:frontend",
+    "test:backend": "cd backend && python -m pytest",
+    "test:frontend": "cd frontend && npm test -- --no-watch --no-progress"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/teckunlimited/nyc.git"
+  },
+  "keywords": [
+    "nyc",
+    "taxi",
+    "tlc",
+    "analytics",
+    "postgresql",
+    "fastapi",
+    "angular"
+  ],
+  "author": "",
+  "license": "MIT"
+}

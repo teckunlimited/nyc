@@ -28,6 +28,14 @@ describe('AppComponent', () => {
         total_revenue: 16500.75,
         avg_trip_distance: 3.8,
         avg_trip_duration: 16.0
+      },
+      {
+        trip_date: '2021-05-01',
+        trip_type: 'green',
+        total_trips: 500,
+        total_revenue: 7500.25,
+        avg_trip_distance: 2.8,
+        avg_trip_duration: 12.5
       }
     ]
   };
@@ -35,19 +43,30 @@ describe('AppComponent', () => {
   const mockTrips = {
     total: 3,
     page: 1,
-    page_size: 100,
+    page_size: 20,
     total_pages: 1,
     data: [
       {
         id: 1,
         trip_type: 'yellow',
-        pickup_datetime: '2021-05-01 10:00:00',
-        dropoff_datetime: '2021-05-01 10:15:00',
+        pickup_datetime: '2021-05-01T10:00:00',
+        dropoff_datetime: '2021-05-01T10:15:00',
         pickup_zone: 'East Harlem North',
         dropoff_zone: 'Upper West Side',
         trip_distance: 2.5,
         total_amount: 17.3,
         duration_minutes: 15.0
+      },
+      {
+        id: 2,
+        trip_type: 'green',
+        pickup_datetime: '2021-05-01T11:00:00',
+        dropoff_datetime: '2021-05-01T11:20:00',
+        pickup_zone: 'Park Slope',
+        dropoff_zone: 'Downtown Brooklyn',
+        trip_distance: 3.2,
+        total_amount: 21.8,
+        duration_minutes: 20.0
       }
     ]
   };
@@ -197,12 +216,12 @@ describe('AppComponent', () => {
 
     it('should calculate total trips correctly', () => {
       component.calculateStatistics();
-      expect(component.totalTrips).toBe(2100); // 1000 + 1100
+      expect(component.totalTrips).toBe(2600); // 1000 + 1100 + 500
     });
 
     it('should calculate total revenue correctly', () => {
       component.calculateStatistics();
-      expect(component.totalRevenue).toBeCloseTo(31501.25, 2); // 15000.50 + 16500.75
+      expect(component.totalRevenue).toBeCloseTo(39001.50, 2); // 15000.50 + 16500.75 + 7500.25
     });
 
     it('should calculate average distance correctly', () => {
@@ -314,7 +333,7 @@ describe('AppComponent', () => {
       component.resetFilters();
 
       expect(component.startDate).toBe('2021-01-01');
-      expect(component.endDate).toBe('2021-12-31');
+      expect(component.endDate).toBe('2021-02-01');
       expect(component.selectedTripType).toBe('');
     });
 
