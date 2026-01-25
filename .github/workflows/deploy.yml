@@ -231,6 +231,18 @@ jobs:
           docker push ${{ env.ACR_LOGIN_SERVER }}/frontend:${{ steps.env.outputs.suffix }}
           docker push ${{ env.ACR_LOGIN_SERVER }}/frontend:latest
 
+      - name: Build and push data loader image
+        run: |
+          docker build --platform linux/amd64 \
+                       -f ./backend/Dockerfile.dataloader \
+                       -t ${{ env.ACR_LOGIN_SERVER }}/nyc-data-loader:${{ github.sha }} \
+                       -t ${{ env.ACR_LOGIN_SERVER }}/nyc-data-loader:${{ steps.env.outputs.suffix }} \
+                       -t ${{ env.ACR_LOGIN_SERVER }}/nyc-data-loader:latest \
+                       ./backend
+          docker push ${{ env.ACR_LOGIN_SERVER }}/nyc-data-loader:${{ github.sha }}
+          docker push ${{ env.ACR_LOGIN_SERVER }}/nyc-data-loader:${{ steps.env.outputs.suffix }}
+          docker push ${{ env.ACR_LOGIN_SERVER }}/nyc-data-loader:latest
+
       - name: Deploy backend to Azure Container Apps
         if: github.event_name == 'push'
         run: |

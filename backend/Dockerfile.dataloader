@@ -1,0 +1,31 @@
+# Dockerfile for Azure Container App data loader
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y \
+    gcc \
+    postgresql-client \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy requirements and install
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Install Azure Storage Blob SDK
+RUN pip install --no-cache-dir azure-storage-blob==12.19.0
+
+# Copy application files
+COPY load_from_azure.py .
+COPY load_data_parallel.py .
+COPY models.py .
+COPY database.py .
+
+# Create directory for downloaded files
+RUN mkdir -p /tmp/data
+
+ENV PYTHONUNBUFFERED=1
+
+# Default command
+CMD ["python", "load_from_azure.py", "--container", "tlc-data", "--workers", "3"]
