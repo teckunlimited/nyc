@@ -181,7 +181,7 @@ az containerapp job logs show \
 ### Check Database Progress
 ```bash
 cd /Users/joshperryman/NewAge/nyc/backend
-export DATABASE_URL="postgresql://nycadmin:Wg8zL7tt4lN05szaXGTD@nyc-dev-dbfaff08.postgres.database.azure.com:5432/nycdb?sslmode=require"
+export DATABASE_URL="postgresql://..."
 
 # Show current record counts
 python3 load_data_safe.py --stats-only
@@ -210,7 +210,7 @@ You can also use the safe loader locally (it has same duplicate prevention):
 
 ```bash
 cd /Users/joshperryman/NewAge/nyc/backend
-export DATABASE_URL="postgresql://nycadmin:Wg8zL7tt4lN05szaXGTD@nyc-dev-dbfaff08.postgres.database.azure.com:5432/nycdb?sslmode=require"
+export DATABASE_URL="postgresql://..."
 
 # Load all data (skips duplicates)
 python3 load_data_safe.py

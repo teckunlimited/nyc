@@ -1,4 +1,4 @@
-# Dockerfile for Azure Container App data loader
+# Dockerfile for Azure Container App data loader - DEBUG VERSION
 FROM python:3.11-slim
 
 WORKDIR /app
@@ -17,15 +17,12 @@ RUN pip install --no-cache-dir -r requirements.txt
 RUN pip install --no-cache-dir azure-storage-blob==12.19.0
 
 # Copy application files
-COPY load_from_azure.py .
-COPY load_data_parallel.py .
-COPY models.py .
-COPY database.py .
+COPY debug_env.py .
 
 # Create directory for downloaded files
 RUN mkdir -p /tmp/data
 
 ENV PYTHONUNBUFFERED=1
 
-# Default command - no arguments to let environment variables take effect
-CMD ["python", "load_from_azure.py"]
+# Debug command
+CMD ["python", "debug_env.py"]

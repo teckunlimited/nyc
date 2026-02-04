@@ -120,7 +120,7 @@ test_main.py::test_rate_limiting PASSED                        [100%]
 - ✅ Empty aggregates chart handling
 
 #### Filter Operations (2 tests)
-- ✅ Reset filters to default (2021-01-01 to 2021-02-01)
+- ✅ Reset filters to default (2021-01-01 to 2025-12-01)
 - ❌ Filter reload (HTTP mock complexity)
 
 #### Pagination (8 tests)

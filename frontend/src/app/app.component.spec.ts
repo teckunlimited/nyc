@@ -333,7 +333,7 @@ describe('AppComponent', () => {
       component.resetFilters();
 
       expect(component.startDate).toBe('2021-01-01');
-      expect(component.endDate).toBe('2021-02-01');
+      expect(component.endDate).toBe('2025-12-01');
       expect(component.selectedTripType).toBe('');
     });
 

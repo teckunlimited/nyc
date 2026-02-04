@@ -224,7 +224,7 @@ export class AppComponent implements OnInit {
   
   // Filter properties
   startDate: string = '2021-01-01';
-  endDate: string = '2021-02-01';
+  endDate: string = '2025-12-01';
   selectedTripType: string = '';
   
   // Pagination for trips
@@ -267,7 +267,7 @@ export class AppComponent implements OnInit {
     this.loadingCharts = true;
     const apiUrl = environment.apiUrl || 'http://localhost:8000';
     
-    let url = `${apiUrl}/api/aggregates/daily?start_date=${this.startDate}&end_date=${this.endDate}&limit=500`;
+    let url = `${apiUrl}/api/aggregates/daily?start_date=${this.startDate}&end_date=${this.endDate}&limit=1000`;
     if (this.selectedTripType) {
       url += `&trip_type=${this.selectedTripType}`;
     }
@@ -551,10 +551,24 @@ export class AppComponent implements OnInit {
 
     // Bar Chart - Average Distance by Type
     const avgDistanceData = tripTypes.map(type => {
-      const typeAggregates = this.aggregates.filter(agg => agg.trip_type === type && agg.avg_trip_distance != null);
-      if (typeAggregates.length === 0) return 0;
-      const sum = typeAggregates.reduce((s, agg) => s + (agg.avg_trip_distance || 0), 0);
-      return sum / typeAggregates.length;
+      const typeAggregates = this.aggregates.filter(agg => agg.trip_type === type);
+      if (typeAggregates.length === 0) return 0; // No data available
+      
+      const validDistanceAggregates = typeAggregates.filter(agg => agg.avg_trip_distance != null);
+      if (validDistanceAggregates.length === 0) {
+        // Trip type exists but has no distance data (like FHV)
+        return 0;
+      }
+      
+      const sum = validDistanceAggregates.reduce((s, agg) => s + (agg.avg_trip_distance || 0), 0);
+      return sum / validDistanceAggregates.length;
+    });
+
+    // Track which types have no distance data
+    const hasDistanceData = tripTypes.map(type => {
+      const typeAggregates = this.aggregates.filter(agg => agg.trip_type === type);
+      const validDistanceAggregates = typeAggregates.filter(agg => agg.avg_trip_distance != null);
+      return validDistanceAggregates.length > 0;
     });
 
     this.barChartOptions = {
@@ -593,14 +607,30 @@ export class AppComponent implements OnInit {
       },
       plotOptions: {
         column: {
-          colorByPoint: true,
-          colors: Object.values(colors)
+          dataLabels: {
+            enabled: true,
+            formatter: function() {
+              // @ts-ignore - accessing Highcharts point data
+              const pointIndex = this.point.index;
+              const yValue = this.y || 0;
+              return hasDistanceData[pointIndex] ? yValue.toFixed(1) : 'N/A';
+            },
+            style: {
+              color: '#c9d1d9',
+              textOutline: 'none',
+              fontSize: '11px'
+            }
+          }
         }
       },
       series: [{
         name: 'Avg Distance',
         type: 'column',
-        data: avgDistanceData
+        data: avgDistanceData.map((value, index) => ({
+          y: value,
+          color: hasDistanceData[index] ? Object.values(colors)[index] : '#6b7280', // Gray for N/A values
+          name: tripTypes[index].toUpperCase()
+        }))
       }],
       credits: {
         enabled: false
@@ -637,7 +667,7 @@ export class AppComponent implements OnInit {
 
   resetFilters() {
     this.startDate = '2021-01-01';
-    this.endDate = '2021-02-01';
+    this.endDate = '2025-12-01';
     this.selectedTripType = '';
     this.currentAggregatesPage = 1;
     this.loadAggregates();
